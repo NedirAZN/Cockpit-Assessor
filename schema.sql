@@ -74,3 +74,51 @@ CREATE TABLE IF NOT EXISTS backups (
   contas     INTEGER,
   criado_em  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Gatilhos: as regras que viram etiqueta no Radar e aviso na fila.
+-- Moram no banco, não no navegador, senão você cria no PC e não vê no celular.
+--
+-- origem = 'fabrica' são as 16 regras que já vinham escritas no cockpit. A linha
+-- aqui guarda só o que você mudou nelas (ligar/desligar, limite, texto); apagar
+-- a linha devolve o comportamento original. origem = 'propria' são as suas.
+CREATE TABLE IF NOT EXISTS gatilhos (
+  id          BIGSERIAL PRIMARY KEY,
+  nome        TEXT NOT NULL,
+  tipo        TEXT NOT NULL DEFAULT 'carteira',   -- carteira | preco | agenda
+  origem      TEXT NOT NULL DEFAULT 'propria',    -- fabrica | propria
+  tag         TEXT,                               -- etiqueta de fábrica que esta linha sobrescreve
+  ativo       BOOLEAN NOT NULL DEFAULT true,
+  cor         TEXT NOT NULL DEFAULT 'gold',       -- gold | sky | red | mut
+  texto       TEXT,                               -- o texto de conversa
+  condicao    JSONB NOT NULL DEFAULT '{}'::jsonb,
+  aplica      JSONB NOT NULL DEFAULT '{"escopo":"todos"}'::jsonb,
+  produtos    JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ordem       INTEGER NOT NULL DEFAULT 100,
+  criado_em   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  alterado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS gatilhos_tag_idx ON gatilhos (tag) WHERE tag IS NOT NULL;
+
+-- Avisos: a fila do que disparou. Preenchida pelo cron e pela própria tela.
+CREATE TABLE IF NOT EXISTS avisos (
+  id          BIGSERIAL PRIMARY KEY,
+  gatilho_id  BIGINT REFERENCES gatilhos(id) ON DELETE CASCADE,
+  conta       TEXT,
+  titulo      TEXT NOT NULL,
+  detalhe     TEXT,
+  valor       NUMERIC(16,2),
+  situacao    TEXT NOT NULL DEFAULT 'aberto',     -- aberto | adiado | resolvido
+  adiado_ate  DATE,
+  criado_em   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS avisos_situacao_idx ON avisos (situacao, criado_em DESC);
+
+-- Consultas salvas da Lista de Atuação. Não são gatilhos: são perguntas que
+-- você repete ("quem tem fundo de liquidez") e não quer remontar toda vez.
+CREATE TABLE IF NOT EXISTS consultas (
+  id         BIGSERIAL PRIMARY KEY,
+  nome       TEXT NOT NULL,
+  condicoes  JSONB NOT NULL DEFAULT '[]'::jsonb,
+  acao       JSONB NOT NULL DEFAULT '{}'::jsonb,
+  criado_em  TIMESTAMPTZ NOT NULL DEFAULT now()
+);

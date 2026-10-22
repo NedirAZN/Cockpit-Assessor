@@ -6,6 +6,10 @@ partir do Postgres. Nenhuma linha da lógica do cockpit precisou mudar.
 """
 import json
 import os
+import time
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request as Request_urllib, urlopen
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -137,6 +141,8 @@ def cockpit(request: Request):
         "</script>"
         '<script src="/static/sync.js"></script>'
         '<script src="/static/upload.js"></script>'
+        '<script src="/static/gatilhos.js"></script>'
+        '<script src="/static/atuacao.js"></script>'
     )
     return HTMLResponse(carregar_template().replace("<!--__BFR_BOOT__-->", boot))
 
@@ -333,7 +339,7 @@ async def api_importar_estado(request: Request, arquivo: UploadFile = File(...))
     return {"importadas": sorted(conhecidas), "ignoradas": sorted(set(dados) - set(conhecidas))}
 
 
-SCRIPTS = {"sync.js", "upload.js"}
+SCRIPTS = {"sync.js", "upload.js", "gatilhos.js", "atuacao.js"}
 
 
 @app.get("/static/{nome}")
@@ -348,6 +354,158 @@ def estatico(nome: str):
         raise HTTPException(404, "não encontrado")
     return Response((BASE / nome).read_text(encoding="utf-8"),
                     media_type="application/javascript")
+
+
+# ------------------------------------------------------------------ cotações
+
+_COTACOES_CACHE: dict[str, tuple[float, dict]] = {}
+CACHE_SEGUNDOS = int(os.environ.get("COTACOES_CACHE_S", "60"))
+
+
+@app.get("/api/cotacoes")
+def api_cotacoes(request: Request, tickers: str, token: str = ""):
+    """Busca cotações na brapi.dev pelo servidor, não pelo navegador.
+
+    Três motivos para não deixar o navegador chamar a brapi direto:
+    o navegador bloqueia chamadas entre domínios, o token apareceria no
+    código-fonte da página para qualquer um que abrisse o cockpit, e sem
+    cache cada clique consome a cota mensal de 15 mil requisições.
+
+    O token sai de BRAPI_TOKEN no ambiente. Se não houver, aceita o que o
+    cockpit mandar — assim continua funcionando com o token salvo no
+    navegador enquanto a variável não for criada.
+    """
+    exigir_login(request)
+
+    lista = ",".join(t.strip() for t in tickers.split(",") if t.strip())[:400]
+    if not lista:
+        raise HTTPException(400, "nenhum ticker informado")
+
+    agora = time.time()
+    em_cache = _COTACOES_CACHE.get(lista)
+    if em_cache and agora - em_cache[0] < CACHE_SEGUNDOS:
+        return JSONResponse(em_cache[1])
+
+    chave = os.environ.get("BRAPI_TOKEN", "").strip() or token.strip()
+    url = f"https://brapi.dev/api/quote/{quote(lista, safe=',^')}"
+    if chave:
+        url += f"?token={quote(chave)}"
+
+    try:
+        req = Request_urllib(url, headers={"User-Agent": "cockpit-bfr"})
+        with urlopen(req, timeout=12) as resposta:
+            dados = json.loads(resposta.read().decode("utf-8"))
+    except HTTPError as e:
+        corpo = e.read().decode("utf-8", "replace")[:200]
+        raise HTTPException(502, f"brapi respondeu {e.code}: {corpo}")
+    except URLError as e:
+        raise HTTPException(502, f"não deu para falar com a brapi: {e.reason}")
+
+    _COTACOES_CACHE[lista] = (agora, dados)
+    if len(_COTACOES_CACHE) > 300:
+        _COTACOES_CACHE.clear()
+    return JSONResponse(dados)
+
+
+# ------------------------------------------------------------------ gatilhos
+
+@app.get("/api/gatilhos")
+def api_gatilhos(request: Request):
+    exigir_login(request)
+    linhas = db.buscar(
+        "SELECT id, nome, tipo, origem, tag, ativo, cor, texto, condicao, aplica, "
+        "       produtos, ordem FROM gatilhos ORDER BY ordem, id")
+    return JSONResponse(json.loads(dumps(linhas)))
+
+
+@app.post("/api/gatilhos")
+async def api_gatilho_gravar(request: Request):
+    """Cria ou atualiza uma regra. Com `id`, atualiza; sem, cria.
+
+    Para regra de fábrica o identificador é a `tag`: a linha guarda só o que
+    você mudou nela, e apagar a linha devolve o comportamento original.
+    """
+    exigir_login(request)
+    g = await request.json()
+
+    campos = (g.get("nome"), g.get("tipo", "carteira"), g.get("origem", "propria"),
+              g.get("tag"), bool(g.get("ativo", True)), g.get("cor", "gold"),
+              g.get("texto"), dumps(g.get("condicao") or {}),
+              dumps(g.get("aplica") or {"escopo": "todos"}),
+              dumps(g.get("produtos") or []), int(g.get("ordem", 100)))
+
+    if not g.get("nome"):
+        raise HTTPException(400, "a regra precisa de um nome")
+
+    if g.get("id"):
+        linha = db.buscar_um(
+            "UPDATE gatilhos SET nome=%s, tipo=%s, origem=%s, tag=%s, ativo=%s, cor=%s, "
+            "texto=%s, condicao=%s, aplica=%s, produtos=%s, ordem=%s, alterado_em=now() "
+            "WHERE id=%s RETURNING id", campos + (g["id"],))
+        if not linha:
+            raise HTTPException(404, "gatilho não encontrado")
+    elif g.get("tag"):
+        linha = db.buscar_um(
+            "INSERT INTO gatilhos (nome, tipo, origem, tag, ativo, cor, texto, condicao, "
+            "aplica, produtos, ordem) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+            "ON CONFLICT (tag) WHERE tag IS NOT NULL DO UPDATE SET nome=EXCLUDED.nome, "
+            "  ativo=EXCLUDED.ativo, "
+            "  cor=EXCLUDED.cor, texto=EXCLUDED.texto, condicao=EXCLUDED.condicao, "
+            "  aplica=EXCLUDED.aplica, produtos=EXCLUDED.produtos, alterado_em=now() "
+            "RETURNING id", campos)
+    else:
+        linha = db.buscar_um(
+            "INSERT INTO gatilhos (nome, tipo, origem, tag, ativo, cor, texto, condicao, "
+            "aplica, produtos, ordem) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+            "RETURNING id", campos)
+    return {"id": linha["id"]}
+
+
+@app.delete("/api/gatilhos/{gatilho_id}")
+def api_gatilho_apagar(request: Request, gatilho_id: int):
+    """Apagar uma regra de fábrica não a remove: devolve o texto original."""
+    exigir_login(request)
+    db.executar("DELETE FROM gatilhos WHERE id = %s", (gatilho_id,))
+    return {"ok": True}
+
+
+@app.get("/api/avisos")
+def api_avisos(request: Request, situacao: str = "aberto"):
+    exigir_login(request)
+    linhas = db.buscar(
+        "SELECT a.id, a.conta, a.titulo, a.detalhe, a.valor, a.situacao, a.adiado_ate, "
+        "       a.criado_em, g.nome AS gatilho FROM avisos a "
+        "LEFT JOIN gatilhos g ON g.id = a.gatilho_id "
+        "WHERE a.situacao = %s ORDER BY a.criado_em DESC LIMIT 200", (situacao,))
+    return JSONResponse(json.loads(dumps(linhas)))
+
+
+# ----------------------------------------------------- consultas salvas
+
+@app.get("/api/consultas")
+def api_consultas(request: Request):
+    exigir_login(request)
+    linhas = db.buscar("SELECT id, nome, condicoes, acao FROM consultas ORDER BY nome")
+    return JSONResponse(json.loads(dumps(linhas)))
+
+
+@app.post("/api/consultas")
+async def api_consulta_gravar(request: Request):
+    exigir_login(request)
+    c = await request.json()
+    if not c.get("nome"):
+        raise HTTPException(400, "a consulta precisa de um nome")
+    linha = db.buscar_um(
+        "INSERT INTO consultas (nome, condicoes, acao) VALUES (%s, %s, %s) RETURNING id",
+        (c["nome"], dumps(c.get("condicoes") or []), dumps(c.get("acao") or {})))
+    return {"id": linha["id"]}
+
+
+@app.delete("/api/consultas/{consulta_id}")
+def api_consulta_apagar(request: Request, consulta_id: int):
+    exigir_login(request)
+    db.executar("DELETE FROM consultas WHERE id = %s", (consulta_id,))
+    return {"ok": True}
 
 
 @app.get("/healthz")
