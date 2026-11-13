@@ -112,18 +112,81 @@ tr:hover .cp,.opcard:hover .cp{opacity:1}
   @media(max-width:720px){#simroot .twocol{grid-template-columns:1fr}}#simroot .lst{background:var(--snavy2);border:1px solid var(--sline);border-radius:12px;padding:14px}#simroot .lst h4{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--sgold);margin-bottom:10px}#simroot .lst .li{display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid rgba(36,64,95,.4)}#simroot .lst .li:last-child{border-bottom:none}#simroot .lst .li .n{color:var(--sink)}#simroot .lst .li .v{color:var(--sgoldsoft);font-weight:700;font-variant-numeric:tabular-nums}#simroot /* projection */
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}#simroot .kpi{background:var(--snavy2);border:1px solid var(--sline);border-radius:12px;padding:14px 16px}#simroot .kpi .k{font-size:11px;color:var(--sinkdim);text-transform:uppercase;letter-spacing:.1em}#simroot .kpi .v{font-size:21px;font-weight:800;margin-top:4px}#simroot .kpi .d{font-size:11px;color:var(--sinkdim);margin-top:2px}#simroot .card{background:var(--snavy2);border:1px solid var(--sline);border-radius:14px;padding:18px}#simroot .card h3{font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:var(--sgold);margin-bottom:14px;font-weight:700}#simroot .inrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:8px}#simroot .field{background:var(--snavy2);border:1px solid var(--sline);border-radius:10px;padding:10px 12px}#simroot .field label{display:block;font-size:11px;color:var(--sinkdim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px}#simroot .field input{width:100%;background:#0d1c30;border:1px solid var(--sline);border-radius:7px;color:var(--sink);font-size:15px;font-weight:700;font-family:inherit;padding:7px 9px}#simroot .field input:focus{outline:none;border-color:var(--sgold)}#simroot .field.calc input{background:transparent;border:none;color:var(--sgoldsoft);padding-left:0}#simroot .dot{width:11px;height:11px;border-radius:3px;display:inline-block}#simroot .foot{display:flex;gap:10px;margin-top:22px;flex-wrap:wrap}#simroot button.act{background:var(--snavy3);border:1px solid var(--sline);color:var(--sink);border-radius:9px;padding:10px 15px;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit}#simroot button.act:hover{border-color:var(--sgold)}#simroot button.act.gold{background:var(--sgold);color:#0B1A2E;border-color:var(--sgold);font-weight:800}#simroot .note{margin-top:18px;background:var(--snavy2);border:1px solid var(--sline);border-left:4px solid var(--sgold);border-radius:10px;padding:13px 16px;font-size:12.5px;color:var(--sinkdim)}#simroot .note b{color:var(--sink)}#simroot svg text{font-family:'Segoe UI',sans-serif}
 
+/* ===== MENU LATERAL ===== */
+.app{display:flex;min-height:100vh}
+.main{flex:1 1 auto;min-width:0}
+.side{flex:0 0 248px;width:248px;box-sizing:border-box;position:sticky;top:0;height:100vh;overflow-x:hidden;overflow-y:auto;padding:20px 14px;background:#0E1728;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:18px;transition:flex-basis .2s ease,width .2s ease;z-index:100}
+.side .brand{padding:0 8px}
+.side .brand b{display:block;font-size:18px;letter-spacing:-.02em}
+.side .brand b span{color:var(--gold)}
+.side .brand small{display:block;font-size:12px;color:#A9BAD3;margin-top:3px}
+.side .mono{display:none;width:48px;height:48px;border-radius:12px;background:var(--panel);border:1px solid var(--line);align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--gold);margin:0 auto}
+.side nav{display:flex;flex-direction:column;gap:4px}
+.side .grp{font-size:12px;font-weight:600;color:#A9BAD3;padding:12px 14px 4px}
+.nv{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:0 14px;border:1px solid transparent;border-radius:10px;background:transparent;color:#A9BAD3;font-family:inherit;font-size:14px;font-weight:500;text-align:left;cursor:pointer}
+.nv svg{flex-shrink:0}
+.nv span{white-space:nowrap}
+.nv:hover{background:var(--panel2)}
+.nv.on{background:rgba(245,192,68,.12);border-color:rgba(245,192,68,.4);color:var(--gold)}
+.nv:focus-visible,.menubtn:focus-visible{outline:2px solid var(--sky);outline-offset:2px}
+.side .foot{margin-top:auto;display:flex;flex-direction:column;gap:10px}
+.side .foot .selo{justify-content:flex-start;padding:10px 12px;border-radius:10px;font-size:12px}
+.side.col{flex-basis:76px;width:76px}
+.side.col .brand{display:none}
+.side.col .mono{display:flex}
+.side.col .nv{justify-content:center;gap:0;padding:0}
+.side.col .nv span,.side.col .foot .selo>span:last-child{display:none}
+.side.col .grp{height:1px;background:var(--line);margin:8px 8px;padding:0;font-size:0;color:transparent;overflow:hidden}
+.side.col .foot .selo{justify-content:center;padding:10px 0}
+.side.col #menuToggle svg{transform:rotate(180deg)}
+.menubtn{display:none;align-items:center;justify-content:center;width:44px;height:44px;flex-shrink:0;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--txt);cursor:pointer}
+.scrim{display:none;position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(5,9,16,.62);z-index:99}
+@media(max-width:900px){
+  .side{position:fixed;left:0;top:0;bottom:0;width:280px;flex-basis:auto;transform:translateX(-100%);transition:transform .2s ease}
+  .side.open{transform:none;box-shadow:0 0 40px rgba(0,0,0,.5)}
+  .scrim.on{display:block}
+  .menubtn{display:flex}
+  #menuToggle{display:none}
+}
+@media print{.side,.menubtn,.scrim{display:none!important}}
 </style>
 </head>
 <body>
+<div class="app">
+<aside class="side" id="side">
+  <div class="brand"><b>Cockpit de <span>Carteiras</span></b><small>BFR Investimentos</small></div>
+  <div class="mono" aria-label="BFR">BFR</div>
+  <nav aria-label="Menu principal">
+      <div class="grp">Carteira</div>
+      <button class="nv on" aria-current="page" data-v="cons" title="Consolidado"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg><span>Consolidado</span></button>
+      <button class="nv" data-v="ativos" title="Produtos & Ativos"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2.5 9.5 5-9.5 5-9.5-5 9.5-5Z"></path><path d="m2.5 12.5 9.5 5 9.5-5"></path><path d="m2.5 17 9.5 5 9.5-5"></path></svg><span>Produtos &amp; Ativos</span></button>
+      <button class="nv" data-v="sim" title="Simulação"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h9"></path><path d="M17 6h3"></path><circle cx="15" cy="6" r="2"></circle><path d="M4 12h2"></path><path d="M10 12h10"></path><circle cx="8" cy="12" r="2"></circle><path d="M4 18h11"></path><path d="M19 18h1"></path><circle cx="17" cy="18" r="2"></circle></svg><span>Simulação</span></button>
+      <div class="grp">Comercial</div>
+      <button class="nv" data-v="ops" title="Radar de Oportunidades"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="4.5"></circle><path d="M12 12 19 5"></path></svg><span>Radar de Oportunidades</span></button>
+      <button class="nv" data-v="metas" title="Metas do Mês"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4"></path><path d="M5 4h12l-2.5 4 2.5 4H5"></path></svg><span>Metas do Mês</span></button>
+      <button class="nv" data-v="cli" title="Clientes"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"></path><circle cx="17.5" cy="9" r="2.5"></circle><path d="M18 14.2c2.4.4 3.8 2.2 3.8 4.8"></path></svg><span>Clientes</span></button>
+      <button class="nv" data-v="msgs" title="Mensagens"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"></path></svg><span>Mensagens</span></button>
+      <div class="grp">Mercado</div>
+      <button class="nv" data-v="macro" title="Indicadores"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 6-6 4 4 8-8"></path><path d="M15 7h6v6"></path></svg><span>Indicadores</span></button>
+  </nav>
+  <div class="foot">
+    <span class="selo" id="selo_atu" onclick="tab='cons';render('cons');window.scrollTo(0,0)"></span>
+    <button class="nv" id="menuToggle" aria-expanded="true" aria-label="Recolher ou expandir o menu" title="Recolher ou expandir o menu"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"></path></svg><span>Recolher menu</span></button>
+  </div>
+</aside>
+<div class="scrim" id="scrim"></div>
+<div class="main">
 <div class="wrap">
 <header>
-  <div>
-    <h1>Cockpit de <span>Carteiras</span> · BFR</h1>
-    <div class="sub" id="subinfo"></div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <button class="menubtn" id="menuBtn" aria-label="Abrir menu" aria-expanded="false" aria-controls="side"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M4 12h16"></path><path d="M4 17h16"></path></svg></button>
+    <div>
+      <h1 id="vtitle">Consolidado</h1>
+      <div class="sub" id="subinfo"></div>
+    </div>
   </div>
   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
     <span class="selo" id="relogio_vivo" title="Data e hora atual — atualiza ao vivo" style="cursor:default"></span>
-    <span class="selo" id="selo_atu" onclick="tab='cons';render('cons');window.scrollTo(0,0)"></span>
     <button onclick="exportarBackup()" title="Salvar boletas, notas, demandas e produtos num arquivo" style="background:var(--panel2);border:1px solid var(--line);color:var(--mut);border-radius:8px;padding:6px 12px;font-size:11.5px;cursor:pointer">⬇ Backup</button>
     <label style="background:var(--panel2);border:1px solid var(--line);color:var(--mut);border-radius:8px;padding:6px 12px;font-size:11.5px;cursor:pointer">⬆ Restaurar
       <input type="file" accept="application/json" style="display:none" onchange="importarBackup(this)">
@@ -131,18 +194,9 @@ tr:hover .cp,.opcard:hover .cp{opacity:1}
   </div>
 </header>
 
-<div class="tabs">
-  <div class="tab on" data-v="cons">Consolidado</div>
-  <div class="tab" data-v="ops">Radar de Oportunidades</div>
-  <div class="tab" data-v="ativos">Produtos & Ativos</div>
-  <div class="tab" data-v="metas">Metas do Mês</div>
-  <div class="tab" data-v="macro">Indicadores</div>
-  <div class="tab" data-v="msgs">Mensagens</div>
-  <div class="tab" data-v="cli">Clientes</div>
-  <div class="tab" data-v="sim">Simulação</div>
-</div>
-
 <div id="view"></div>
+</div>
+</div>
 </div>
 
 <button id="chatbtn" onclick="toggleChat()" title="Assistente do cockpit">💬</button>
@@ -3503,6 +3557,7 @@ function openReport(){const html=buildReportHTML();let w=null;try{w=window.open(
 })();
 
 
+const NAV_TITULOS={cons:"Consolidado",ops:"Radar de Oportunidades",ativos:"Produtos & Ativos",metas:"Metas do Mês",macro:"Indicadores",msgs:"Mensagens",cli:"Clientes",sim:"Simulação"};
 function render(v){
   curView = v;
   // preservar foco/cursor de um campo de busca (evita perder o cursor a cada tecla)
@@ -3516,7 +3571,8 @@ function render(v){
     el.innerHTML = `<span style="color:${cor}">●</span> <span style="color:var(--mut)">${txt}</span>`;
     el.title = S.pendente ? "Atualização pendente — clique para ver" : `Próxima janela em ${S.faltamProx} dia(s)`;
   })();
-  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.v===v));
+  document.querySelectorAll(".nv[data-v]").forEach(t=>{const _on=t.dataset.v===v; t.classList.toggle("on",_on); if(_on) t.setAttribute("aria-current","page"); else t.removeAttribute("aria-current");});
+  const _vt=document.getElementById("vtitle"); if(_vt) _vt.textContent=NAV_TITULOS[v]||NAV_TITULOS.cli;
   const el = document.getElementById("view");
   el.innerHTML = v==="cons"?vConsolidado():v==="ops"?vOps():v==="ativos"?vAtivos():v==="metas"?vMetas():v==="macro"?vMacro():v==="msgs"?vMsgs():v==="sim"?vSim():vClientes();
   if(v==="macro") carregaMacro(false);
@@ -3528,7 +3584,24 @@ function render(v){
     if(inp){ inp.focus(); try{ inp.setSelectionRange(_focoBusca.start, _focoBusca.end); }catch(e){} }
   }
 }
-document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{contaSel=null;ativoSel=null;prodSel=null;prodPassadoSel=null;pacoteSel=null;render(t.dataset.v)});
+document.querySelectorAll(".nv[data-v]").forEach(t=>t.onclick=()=>{contaSel=null;ativoSel=null;prodSel=null;prodPassadoSel=null;pacoteSel=null;render(t.dataset.v);if(window.fechaMenu)window.fechaMenu();window.scrollTo(0,0)});
+// ================= MENU LATERAL (recolher / gaveta no celular) =================
+(function(){
+  const side=document.getElementById("side"), scrim=document.getElementById("scrim"), btn=document.getElementById("menuBtn"), tg=document.getElementById("menuToggle");
+  if(!side||!scrim||!btn||!tg) return;
+  const mq=window.matchMedia("(max-width:900px)");
+  let rec=false; try{ rec=localStorage.getItem("bfr_menu_recolhido")==="1"; }catch(e){}
+  function aplica(){ const c=rec&&!mq.matches; side.classList.toggle("col",c); tg.setAttribute("aria-expanded",String(!c)); }
+  function abre(o){ side.classList.toggle("open",o); scrim.classList.toggle("on",o); btn.setAttribute("aria-expanded",String(o)); }
+  window.fechaMenu=function(){ abre(false); };
+  btn.onclick=function(){ abre(!side.classList.contains("open")); };
+  scrim.onclick=function(){ abre(false); };
+  tg.onclick=function(){ rec=!rec; try{ localStorage.setItem("bfr_menu_recolhido",rec?"1":"0"); }catch(e){} aplica(); };
+  document.addEventListener("keydown",function(e){ if(e.key==="Escape") abre(false); });
+  const mudou=function(){ abre(false); aplica(); };
+  if(mq.addEventListener) mq.addEventListener("change",mudou); else mq.addListener(mudou);
+  aplica();
+})();
 // ================= BACKUP DOS DADOS =================
 const CHAVES = ["bfr_boletas_jul26","bfr_overrides_v1","bfr_crm_v1","bfr_produtos_v1","bfr_brapi_token"];
 function exportarBackup(){
