@@ -14,7 +14,8 @@
   var CHAVES = [
     "bfr_crm_v1", "bfr_overrides_v1", "bfr_metas_v1", "bfr_mix_v1",
     "bfr_produtos_v1", "bfr_produtos_v3_ago26", "bfr_boletas_jul26",
-    "bfr_sim_v3", "bfr_atualizacao_v1", "bfr_brapi_token"
+    "bfr_sim_v3", "bfr_atualizacao_v1", "bfr_brapi_token",
+    "bfr_produtos_lixeira_v1"
   ];
 
   var memoria = Object.assign({}, window.__BFR_ESTADO__ || {});

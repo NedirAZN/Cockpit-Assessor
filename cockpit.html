@@ -148,7 +148,45 @@ tr:hover .cp,.opcard:hover .cp{opacity:1}
   .menubtn{display:flex}
   #menuToggle{display:none}
 }
-@media print{.side,.menubtn,.scrim{display:none!important}}
+@media print{.side,.menubtn,.scrim,.drawer,.dr-scrim{display:none!important}}
+/* ===== GAVETA DE CADASTRO + CHIPS DE GATILHOS ===== */
+.dr-scrim{display:none;position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(5,9,16,.62);z-index:119}
+.dr-scrim.on{display:block}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:500px;max-width:100vw;box-sizing:border-box;background:#0E1728;border-left:1px solid var(--line);display:flex;flex-direction:column;transform:translateX(100%);visibility:hidden;transition:transform .2s ease,visibility 0s linear .2s;z-index:120}
+.drawer.open{transform:none;visibility:visible;transition:transform .2s ease}
+.dr-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:20px 24px 14px}
+.dr-head h2{margin:0;font-size:18px;letter-spacing:-.01em}
+.dr-sub{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#A9BAD3}
+.dr-sub i{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0}
+.dr-x{display:flex;align-items:center;justify-content:center;width:44px;height:44px;flex-shrink:0;border:1px solid #24354F;border-radius:10px;background:transparent;color:var(--txt);cursor:pointer}
+.dr-body{flex:1;overflow-y:auto;padding:0 24px}
+.dr-sec{display:flex;flex-direction:column;gap:12px;padding:18px 0;border-top:1px solid var(--line)}
+.dr-sec.first{border-top:0;padding-top:6px}
+.dr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.dr-fld{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#A9BAD3;min-width:0}
+.dr-in{box-sizing:border-box;width:100%;min-height:44px;padding:0 12px;border:1px solid #24354F;border-radius:10px;background:var(--panel);color:var(--txt);font-family:inherit;font-size:14px}
+textarea.dr-in{padding:10px 12px;min-height:110px;resize:vertical;line-height:1.5}
+.dr-in::placeholder{color:#8FA3C0}
+.dr-in:focus-visible,.dr-x:focus-visible,.dr-seg button:focus-visible,.dr-btn:focus-visible{outline:2px solid var(--sky);outline-offset:2px}
+.dr-hint{font-size:12px;color:#A9BAD3;line-height:1.5}
+.dr-ttl{font-size:13px;font-weight:600;color:var(--txt)}
+.dr-foot{display:flex;gap:10px;justify-content:space-between;align-items:center;padding:14px 24px;border-top:1px solid var(--line);background:#0E1728}
+.dr-btn{min-height:44px;padding:0 18px;border:1px solid #24354F;border-radius:10px;background:transparent;color:#A9BAD3;font-family:inherit;font-size:14px;cursor:pointer}
+.dr-btn.pri{border:0;background:var(--gold);color:#0B1220;font-weight:700;padding:0 22px}
+.dr-seg{display:flex;gap:6px}
+.dr-seg button{flex:1;min-height:44px;border:1px solid #24354F;border-radius:10px;background:var(--panel);color:#A9BAD3;font-family:inherit;font-size:13px;cursor:pointer}
+.dr-seg button.on{border-color:rgba(245,192,68,.55);background:rgba(245,192,68,.14);color:var(--gold);font-weight:600}
+.gblock .gtop{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:10px}
+.gblock .gcount{font-size:12px;color:#A9BAD3}
+.ggrp{margin-bottom:12px}
+.gtit{font-size:12px;color:#A9BAD3;margin-bottom:8px}
+.gwrap{display:flex;flex-wrap:wrap;gap:8px}
+.gchip{position:relative;display:inline-flex}
+.gchip input{position:absolute;top:0;left:0;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
+.gchip span{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border-radius:22px;border:1px solid #24354F;background:var(--panel);color:#A9BAD3;font-size:13px}
+.gchip input:checked + span{border-color:rgba(245,192,68,.55);background:rgba(245,192,68,.14);color:var(--gold);font-weight:600}
+.gchip input:focus-visible + span{outline:2px solid var(--sky);outline-offset:2px}
+@media(max-width:560px){.dr-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -175,6 +213,8 @@ tr:hover .cp,.opcard:hover .cp{opacity:1}
   </div>
 </aside>
 <div class="scrim" id="scrim"></div>
+<div class="dr-scrim" id="drScrim"></div>
+<aside class="drawer" id="drawerProd" aria-label="Novo produto" aria-hidden="true"></aside>
 <div class="main">
 <div class="wrap">
 <header>
@@ -312,24 +352,153 @@ const PRODUTOS_SEED = [
 let PRODUTOS = PRODUTOS_SEED;
 try{ const s=localStorage.getItem(PKEY); if(s){ const j=JSON.parse(s); if(Array.isArray(j)&&j.length) PRODUTOS=j; } }catch(e){}
 function saveProd(){ try{ localStorage.setItem(PKEY, JSON.stringify(PRODUTOS)); }catch(e){} }
+const ICO_LIXO='<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><path d="M4 7h16"></path><path d="M9 7V4h6v3"></path><path d="M6 7l1 13h10l1-13"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>';
+// Lixeira: produto excluído sai do radar, mas pode voltar. Fica em chave própria (sincroniza com o banco).
+const LKEY="bfr_produtos_lixeira_v1";
+let LIXEIRA=[]; let lixConf=null;
+try{ const s=localStorage.getItem(LKEY); if(s){ const j=JSON.parse(s); if(Array.isArray(j)) LIXEIRA=j; } }catch(e){}
+function saveLix(){ try{ localStorage.setItem(LKEY, JSON.stringify(LIXEIRA)); }catch(e){} }
+function delProduto(id){
+  const p=PRODUTOS.find(x=>x.id===id); if(!p) return;
+  LIXEIRA.unshift(Object.assign({},p,{excluidoEm:_hojeISO()})); saveLix();
+  PRODUTOS=PRODUTOS.filter(x=>x.id!==id); saveProd(); recalcRadar(); lixConf=null; render('metas');
+}
+function restaurarProduto(id){
+  const i=LIXEIRA.findIndex(x=>x.id===id); if(i<0) return;
+  const p=Object.assign({},LIXEIRA[i]); delete p.excluidoEm;
+  LIXEIRA.splice(i,1); saveLix(); PRODUTOS.push(p); saveProd(); recalcRadar(); lixConf=null; render('metas');
+}
+function apagarDeVez(id){
+  if(lixConf!==id){ lixConf=id; render('metas'); return; }   // 1º clique pede confirmação
+  LIXEIRA=LIXEIRA.filter(x=>x.id!==id); lixConf=null; saveLix(); render('metas');
+}
+function lixeiraHTML(){
+  if(!LIXEIRA.length) return "";
+  const dBR=d=>d?d.split("-").reverse().join("/"):"";
+  return `<div style="margin-top:22px;border:1px dashed var(--line);border-radius:14px;padding:14px 16px">
+    <div class="sec" style="margin:0 0 6px;display:flex;align-items:center;gap:8px">${ICO_LIXO} Lixeira <span class="pill mut">${LIXEIRA.length}</span></div>
+    <div class="hint" style="margin:0 0 10px">Produtos que você excluiu. Restaurar traz o produto de volta com os mesmos dados. Apagar de vez remove de verdade.</div>
+    ${LIXEIRA.map(p=>`<div class="prod" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px">
+      <div style="flex:1 1 280px;min-width:0"><div class="pt" style="margin:0">${p.nome}</div><div class="hint" style="margin:2px 0 0">${p.tipo||""}${p.excluidoEm?" · excluído em "+dBR(p.excluidoEm):""}</div></div>
+      <button onclick="restaurarProduto('${p.id}')" style="min-height:40px;padding:0 16px;border:1px solid rgba(245,192,68,.55);border-radius:9px;background:rgba(245,192,68,.12);color:var(--gold);font-weight:700;cursor:pointer">Restaurar</button>
+      <button onclick="apagarDeVez('${p.id}')" style="min-height:40px;padding:0 14px;border-radius:9px;cursor:pointer;${lixConf===p.id?"border:0;background:#E5484D;color:#fff;font-weight:700":"border:1px solid var(--line);background:transparent;color:var(--red)"}">${lixConf===p.id?"Confirmar: apagar de vez":"Apagar de vez"}</button>
+    </div>`).join("")}
+  </div>`;
+}
+
+// ---- gatilhos em chips (checkbox escondido: o navegador cuida de marcar/desmarcar, sem Ctrl) ----
+const GATILHO_GRUPOS=[
+  ["Caixa e reserva",["Caixa acima de 30%","Caixa 20–30%","Folga sobre a reserva"]],
+  ["Inflação, juros e proteção",["Sem proteção IPCA","Vértice concentrado (IPCA)","Abaixo do CDI 12M","Sem internacional","Proteção GLD 3–5%"]],
+  ["Concentração",["Concentração em ação","Concentração em FII","Concentração em fundo","Concentração bancária","Acima do FGC"]],
+  ["Perfil e risco",["Já opera estruturadas","Posições em perda","Falsa liquidez"]]
+];
+function blocoGatilhos(prefix, sel, idCont){
+  sel=sel||[];
+  const usados=new Set(); const grupos=GATILHO_GRUPOS.map(([t,l])=>{ const f=l.filter(x=>GATILHOS_DISP.includes(x)); f.forEach(x=>usados.add(x)); return [t,f]; });
+  const extras=GATILHOS_DISP.filter(x=>!usados.has(x)); if(extras.length) grupos.push(["Outros",extras]);
+  const n=sel.filter(x=>GATILHOS_DISP.includes(x)).length;
+  const chips=grupos.filter(g=>g[1].length).map(([t,l])=>`<div class="ggrp"><div class="gtit">${t}</div><div class="gwrap">${l.map(x=>{ const i=GATILHOS_DISP.indexOf(x); return `<label class="gchip"><input type="checkbox" id="${prefix}_${i}" value="${x}"${sel.includes(x)?" checked":""}><span>${x}</span></label>`; }).join("")}</div></div>`).join("");
+  return `<div class="gblock"><div class="gtop"><span class="dr-ttl">Para quem indicar</span><span class="gcount">${textoContaGat(n)}</span></div><div id="${idCont}">${chips}</div></div>`;
+}
+function textoContaGat(n){ return n===0?"nenhum selecionado":n===1?"1 selecionado":n+" selecionados"; }
+function atualizaContaGat(bloco){ const c=bloco.querySelector(".gcount"); if(c) c.textContent=textoContaGat(bloco.querySelectorAll("input:checked").length); }
+document.addEventListener("change",function(e){ const t=e.target; const b=t&&t.closest&&t.closest(".gblock"); if(b&&t.type==="checkbox") atualizaContaGat(b); });
+
+// ---- gaveta "Novo produto" (fica fora da área que a tela redesenha: nada que você digita se perde) ----
+const GKEY="bfr_rascunho_gaveta";   // sessionStorage: fora do sync, não vai para o banco
+function htmlGaveta(){
+  const opt=(l,sel)=>l.map(x=>`<option${x===sel?" selected":""}>${x}</option>`).join("");
+  return `<div class="dr-head"><div><h2>Novo produto</h2><div class="dr-sub"><i></i>Rascunho salvo automaticamente enquanto você digita</div></div>
+      <button class="dr-x" type="button" onclick="fechaGaveta()" aria-label="Fechar"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"></path><path d="M18 6 6 18"></path></svg></button></div>
+    <div class="dr-body">
+      <div class="dr-sec first">
+        <label class="dr-fld">Nome do produto<input class="dr-in" id="p_nome" placeholder="Ex: CDB Banco X 118% CDI 3 anos"></label>
+        <div class="dr-grid">
+          <label class="dr-fld">Tipo<input class="dr-in" id="p_tipo" placeholder="CDB, Debênture, COE…"></label>
+          <label class="dr-fld">Cor do selo<select class="dr-in" id="p_cor">${opt(["gold","green","sky","violet","orange","red"])}</select></label>
+        </div>
+        <div class="dr-fld" role="group" aria-label="Público">Público
+          <input type="hidden" id="p_pub" value="Geral">
+          <div class="dr-seg" id="p_pub_seg">${["Geral","Qualificado","Profissional"].map((x,i)=>`<button type="button" data-pub="${x}" class="${i===0?"on":""}" aria-pressed="${i===0}" onclick="escolhePub('${x}')">${x}</button>`).join("")}</div>
+        </div>
+      </div>
+      <div class="dr-sec">
+        <div class="dr-ttl">Condições</div>
+        <div class="dr-grid">
+          <label class="dr-fld">Classe da meta<select class="dr-in" id="p_classe">${METAS.map(m=>`<option>${m.classe}</option>`).join("")}</select></label>
+          <label class="dr-fld">Indexador<select class="dr-in" id="p_idx">${opt(["IPCA","CDI","Pré","Ouro","RV","Câmbio","Outro"])}</select></label>
+          <label class="dr-fld">Taxa ou spread (%)<input class="dr-in" id="p_spread" type="number" step="0.01" placeholder="9,0"></label>
+          <label class="dr-fld">ROA (%)<input class="dr-in" id="p_roa" type="number" step="0.01" placeholder="a definir"></label>
+          <label class="dr-fld">Início da captação<input class="dr-in" id="p_ini" type="date"></label>
+          <label class="dr-fld">Fim da captação<input class="dr-in" id="p_fim" type="date"></label>
+        </div>
+        <div class="dr-hint">ROA em branco: o cockpit usa o ROA da classe e marca o produto como “ROA a definir”. Datas em branco: o produto fica sempre ativo; ao passar do fim, ele sai do radar e vai para “Produtos do mês passado”.</div>
+      </div>
+      <div class="dr-sec">
+        <label class="dr-fld">Resumo para a pauta<textarea class="dr-in" id="p_res" rows="4" placeholder="Características, prazo, isenção, por que agora…"></textarea></label>
+      </div>
+      <div class="dr-sec">${blocoGatilhos("p_gat","", "p_gat")}</div>
+    </div>
+    <div class="dr-foot">
+      <button class="dr-btn" type="button" onclick="limparGaveta()">Limpar rascunho</button>
+      <button class="dr-btn pri" type="button" onclick="addProduto()">Salvar produto</button>
+    </div>`;
+}
+function escolhePub(v){
+  const h=document.getElementById("p_pub"); if(h) h.value=v;
+  document.querySelectorAll("#p_pub_seg button").forEach(b=>{ const on=b.dataset.pub===v; b.classList.toggle("on",on); b.setAttribute("aria-pressed",String(on)); });
+  salvaRascunhoGaveta();
+}
+function salvaRascunhoGaveta(){
+  try{
+    const r={}; document.querySelectorAll('#drawerProd [id^="p_"]').forEach(el=>{
+      if(el.type==="checkbox") r[el.id]=el.checked; else if(el.tagName!=="DIV"&&"value" in el) r[el.id]=el.value; });
+    sessionStorage.setItem(GKEY,JSON.stringify(r));
+  }catch(e){}
+}
+function restauraRascunhoGaveta(){
+  let r=null; try{ const j=sessionStorage.getItem(GKEY); r=j?JSON.parse(j):null; }catch(e){}
+  if(!r) return;
+  Object.keys(r).forEach(id=>{ const el=document.getElementById(id); if(!el) return; if(el.type==="checkbox") el.checked=!!r[id]; else el.value=r[id]; });
+  if(r.p_pub) escolhePub(r.p_pub);
+  document.querySelectorAll("#drawerProd .gblock").forEach(atualizaContaGat);
+}
+function limpaRascunhoGaveta(){ try{ sessionStorage.removeItem(GKEY); }catch(e){} }
+function limparGaveta(){
+  limpaRascunhoGaveta(); const d=document.getElementById("drawerProd"); d.innerHTML=htmlGaveta();
+  const n=document.getElementById("p_nome"); if(n) n.focus();
+}
+function abrirGaveta(){
+  const d=document.getElementById("drawerProd"), sc=document.getElementById("drScrim"); if(!d||!sc) return;
+  if(!d.classList.contains("open")){ d.innerHTML=htmlGaveta(); restauraRascunhoGaveta(); }
+  d.classList.add("open"); d.setAttribute("aria-hidden","false"); sc.classList.add("on");
+  setTimeout(()=>{ const n=document.getElementById("p_nome"); if(n) n.focus(); },40);
+}
+function fechaGaveta(){
+  const d=document.getElementById("drawerProd"), sc=document.getElementById("drScrim"); if(!d||!sc) return;
+  const estava=d.classList.contains("open");
+  d.classList.remove("open"); d.setAttribute("aria-hidden","true"); sc.classList.remove("on");
+  if(estava){ const b=document.querySelector(".btn-novo-prod"); if(b) b.focus(); }
+}
+(function(){
+  const sc=document.getElementById("drScrim"); if(sc) sc.onclick=fechaGaveta;
+  document.addEventListener("keydown",function(e){ if(e.key==="Escape") fechaGaveta(); });
+  ["input","change"].forEach(ev=>document.addEventListener(ev,function(e){ const t=e.target; if(t&&t.closest&&t.closest("#drawerProd")) salvaRascunhoGaveta(); }));
+})();
+
 function addProduto(){
   const g=id=>document.getElementById(id);
   const nome=(g("p_nome").value||"").trim();
   if(!nome){ const n=g("p_nome"); n.focus(); n.style.borderColor="var(--red)"; n.placeholder="Informe o nome do produto para salvar"; return; }
+  const num=id=>{ const v=g(id).value; if(v==="") return null; const x=Number(v); return isFinite(x)?x:null; };
   PRODUTOS.push({id:"p"+Date.now(), nome, tipo:g("p_tipo").value, cor:g("p_cor").value,
     resumo:(g("p_res").value||"").trim(), classeMeta:g("p_classe").value,
-    roa:parseFloat(g("p_roa").value)||1.5, publico:g("p_pub").value,
-    indexador:g("p_idx").value, spread:parseFloat(g("p_spread").value)||null,
-    gatilhos:[...g("p_gat").selectedOptions].map(o=>o.value),
+    roa:num("p_roa"), publico:g("p_pub").value,
+    indexador:g("p_idx").value, spread:num("p_spread"),
+    gatilhos:[...document.querySelectorAll("#p_gat input:checked")].map(i=>i.value),
     capIni:g("p_ini").value||null, capFim:g("p_fim").value||null, mesRef:mesRefAtual()});
-  saveProd(); recalcRadar(); window.__semRascunho=true; render('metas');
-}
-function delProduto(id){
-  const p = PRODUTOS.find(x=>x.id===id);
-  let ok = true;
-  try { ok = confirm('Remover '+(p?p.nome:'este produto')+'?'); } catch(e) { ok = true; }
-  if(!ok) return;
-  PRODUTOS=PRODUTOS.filter(p=>p.id!==id); saveProd(); recalcRadar(); render('metas');
+  saveProd(); recalcRadar(); limpaRascunhoGaveta(); fechaGaveta(); window.__semRascunho=true; render('metas');
 }
 function resetProdutos(){ PRODUTOS=JSON.parse(JSON.stringify(PRODUTOS_SEED)); saveProd(); recalcRadar(); window.__semRascunho=true; render('metas'); }
 const GATILHOS_DISP = ["Caixa acima de 30%","Caixa 20–30%","Folga sobre a reserva","Sem proteção IPCA","Sem internacional",
@@ -521,7 +690,7 @@ function salvarEdicaoProduto(id){
   p.capIni = val("e_ini") || null;
   p.capFim = val("e_fim") || null;
   p.resumo = val("e_res") ?? p.resumo;
-  const gsel = gv("e_gat"); if(gsel) p.gatilhos = [...gsel.selectedOptions].map(o=>o.value);
+  const gbox=document.getElementById("eg_"+id); if(gbox) p.gatilhos=[...gbox.querySelectorAll("input:checked")].map(i=>i.value);
   saveProd(); recalcRadar(); window.__semRascunho=true; render('metas');
 }
 function limparHistorico(){ if(confirm('Apagar TODO o histórico de fechamentos? Esta ação não pode ser desfeita.')){ MET.historico=[]; saveMET(); render('metas'); } }
@@ -1462,7 +1631,7 @@ function tickRelogio(){
 }
 // true quando o cursor está num campo de formulário da tela: refazer a tela agora apagaria o que está sendo digitado
 // true quando o formulário "Novo produto" está aberto na tela
-function formProdAberto(){ const f=document.getElementById("formprod"); return !!(f && f.style.display!=="none"); }
+function formProdAberto(){ const d=document.getElementById("drawerProd"); return !!(d && d.classList.contains("open")); }
 // true quando QUALQUER campo da tela foi alterado e ainda não salvo (mesmo sem foco nele): refazer a tela apagaria o que foi digitado
 function temAlteracaoPendente(){
   const v=document.getElementById("view"); if(!v) return false;
@@ -2527,30 +2696,12 @@ function vMetas(){
   <div class="card mt">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
       <div class="sec" style="margin:0">Cadastro de produtos</div>
-      <button onclick="document.getElementById('formprod').style.display=document.getElementById('formprod').style.display==='none'?'block':'none';gravaRascunho()" style="background:var(--panel2);border:1px solid var(--line);color:var(--gold);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">+ Novo produto</button>
+      <button class="btn-novo-prod" onclick="abrirGaveta()" style="background:var(--panel2);border:1px solid var(--line);color:var(--gold);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">+ Novo produto</button>
       <button onclick="if(confirm('Restaurar os 4 produtos originais? Os cadastrados serão perdidos.'))resetProdutos()" style="background:none;border:none;color:var(--dim);font-size:11px;cursor:pointer">restaurar padrão</button>
       <span class="sub" style="margin-left:auto">${PRODUTOS.length} produto(s) ativo(s)</span>
     </div>
-    <div id="formprod" style="display:none">
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px">
-        <div style="grid-column:span 2"><div class="blbl">Nome do produto</div><input class="binput" id="p_nome" placeholder="Ex: CDB Banco X 118% CDI 3 anos"></div>
-        <div><div class="blbl">Tipo</div><input class="binput" id="p_tipo" placeholder="CDB / Debênture / COE…"></div>
-        <div><div class="blbl">Público</div><select class="binput" id="p_pub"><option>Geral</option><option>Qualificado</option><option>Profissional</option></select></div>
-        <div><div class="blbl">Classe da meta</div><select class="binput" id="p_classe">${METAS.map(m=>`<option>${m.classe}</option>`).join("")}</select></div>
-        <div><div class="blbl">ROA (%)</div><input class="binput" type="number" step="0.1" id="p_roa" placeholder="1.5"></div>
-        <div><div class="blbl">Indexador</div><select class="binput" id="p_idx">${["IPCA","CDI","Pré","Ouro","RV","Câmbio","Outro"].map(i=>`<option>${i}</option>`).join("")}</select></div>
-        <div><div class="blbl">Spread / taxa (%)</div><input class="binput" type="number" step="0.1" id="p_spread" placeholder="9.0"></div>
-        <div style="grid-column:span 3"><div class="blbl">Resumo (aparece na pauta)</div><input class="binput" id="p_res" placeholder="Características principais, prazo, isenção…"></div>
-        <div><div class="blbl">Cor</div><select class="binput" id="p_cor">${["gold","green","sky","violet","orange","red"].map(x=>`<option>${x}</option>`).join("")}</select></div>
-        <div style="grid-column:span 4"><div class="blbl">Gatilhos — para quais sinais do radar este produto é indicado (Ctrl/Cmd para múltiplos)</div>
-          <select class="binput" id="p_gat" multiple size="4">${GATILHOS_DISP.map(g=>`<option>${g}</option>`).join("")}</select></div>
-        <div><div class="blbl">Início da captação</div><input class="binput" type="date" id="p_ini"></div>
-        <div><div class="blbl">Fim da captação</div><input class="binput" type="date" id="p_fim"></div>
-        <div style="grid-column:span 2"><div class="hint" style="margin-top:18px">Deixe as datas em branco para produto sem janela (fica sempre ativo). Ao passar do fim, o produto sai do radar e vai para "Encerrados no mês".</div></div>
-      </div>
-      <button onclick="addProduto()" style="background:var(--gold);color:#0B1220;border:none;border-radius:8px;padding:9px 18px;font-weight:600;cursor:pointer;font-size:13px">Salvar produto</button>
-      <div class="hint">Ao salvar, o radar recalcula: o produto passa a aparecer nas contas cujos sinais batem com os gatilhos, entra no dimensionamento por slot e soma na classe da meta.</div>
-    </div>
+    <div class="hint" style="margin:-4px 0 4px">O cadastro abre num painel ao lado. O que você digita fica guardado como rascunho até salvar.</div>
+    
   </div>
   <div class="card mt">
     <div class="sec">Produtos do mês — clique para abrir a lista de contas-alvo</div>
@@ -2564,7 +2715,7 @@ function vMetas(){
           ${p.indexador&&p.spread?`<span class="pill sky">${p.indexador} + ${fp(p.spread)}</span>`:p.indexador?`<span class="pill sky">${p.indexador}</span>`:""}
           <span class="pill green">${alvo.length} contas-alvo</span> <span class="pill gold">receita potencial ${fmtK(recTot)}</span>
           <button class="reativar" style="margin-left:auto;background:rgba(139,148,158,.14);border:1px solid rgba(139,148,158,.5);color:var(--mut);border-radius:7px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();arquivarProduto('${p.id}')" title="Tirar de produção — sai do radar, oportunidades, mensagens e esteira, e vai para 'Produtos do mês passado'">📥 Tirar de produção</button>
-          <button class="del" style="margin-left:6px" onclick="event.stopPropagation();delProduto('${p.id}')">✕</button></div>
+          <button class="del" style="margin-left:6px" onclick="event.stopPropagation();delProduto('${p.id}')" title="Mover para a lixeira" aria-label="Mover para a lixeira">${ICO_LIXO}</button></div>
         <div class="pd">${p.resumo}</div>
         <div class="hint">Classe da meta: ${p.classeMeta} · ROA ${fp(p.roa)} · gatilhos: ${(p.gatilhos||[]).join(", ")||"—"}</div>
         ${open?`<div class="expand" onclick="event.stopPropagation()" style="margin-top:10px">
@@ -2581,8 +2732,7 @@ function vMetas(){
             <div><div class="blbl">Início captação</div><input class="binput" type="date" id="e_ini_${p.id}" value="${p.capIni||''}"></div>
             <div><div class="blbl">Fim captação</div><input class="binput" type="date" id="e_fim_${p.id}" value="${p.capFim||''}"></div>
             <div style="grid-column:span 4"><div class="blbl">Pitch / descrição (aparece na pauta)</div><textarea class="binput" id="e_res_${p.id}" rows="3" style="width:100%;resize:vertical;font-family:inherit">${p.resumo||''}</textarea></div>
-            <div style="grid-column:span 4"><div class="blbl">Gatilhos — sinais do radar (Ctrl/Cmd para múltiplos)</div>
-              <select class="binput" id="e_gat_${p.id}" multiple size="4" style="width:100%">${GATILHOS_DISP.map(gt=>`<option ${(p.gatilhos||[]).includes(gt)?"selected":""}>${gt}</option>`).join("")}</select></div>
+            <div style="grid-column:span 4">${blocoGatilhos("e_gat_"+p.id, p.gatilhos, "eg_"+p.id)}</div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;margin:10px 0 4px">
             <button onclick="salvarEdicaoProduto('${p.id}')" style="background:var(--gold);color:#0B1220;border:none;border-radius:8px;padding:7px 16px;font-weight:700;cursor:pointer">Salvar alterações</button>
@@ -2610,7 +2760,7 @@ function vMetas(){
     ${(()=>{ const enc=PRODUTOS.filter(p=>!produtoAtivo(p) && (p.arquivado || statusProduto(p).nivel==="encerrado"));
       if(!enc.length) return "";
       return `<div class="sec" style="margin-top:22px">Produtos do mês passado (${enc.length}) — fora de produção · clique para ver o cruzamento histórico</div>
-      <div class="hint" style="margin:-4px 0 10px">Produtos que você tirou de produção. Eles não aparecem mais no radar, mensagens ou esteira. Clique em "Reativar" para trazer um de volta ao mês corrente — todas as conexões voltam automaticamente. Ou abra para ver quais contas teriam sido alvo, como referência para buscar um produto similar.</div>
+      <div class="hint" style="margin:-4px 0 10px">Produtos que você tirou de produção. Eles não aparecem mais no radar, mensagens ou esteira. Clique em "Reativar" para trazer um de volta ao mês corrente — todas as conexões voltam automaticamente. Ou abra para ver quais contas teriam sido alvo, como referência para buscar um produto similar. O ícone de lixeira move o produto para a Lixeira, de onde ele pode ser restaurado.</div>
       ${enc.map(p=>{
         const open = prodPassadoSel===p.id;
         const cruz = clientesCruzados(p.id);
@@ -2619,7 +2769,7 @@ function vMetas(){
         <div class="pt" style="cursor:pointer" onclick="prodPassadoSel=${open?"null":`'${p.id}'`};render('metas')">
           ${open?"▾":"▸"} ${p.nome} <span class="pill mut">${p.tipo}</span> <span class="pill red">${p.arquivado?"Fora de produção":(p.capFim?("Encerrado em "+p.capFim.split("-").reverse().join("/")):"Mês passado")}</span> <span class="pill sky">${cruz.length} conta(s) cruzada(s)</span>
           <button class="reativar" style="margin-left:auto;background:rgba(63,185,80,.14);border:1px solid rgba(63,185,80,.5);color:var(--green);border-radius:7px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();reativarProduto('${p.id}')" title="Trazer de volta para o mês corrente — reativa radar, mensagens e oportunidades">↻ Reativar no mês</button>
-          <button class="del" style="margin-left:6px" onclick="event.stopPropagation();delProduto('${p.id}')">✕</button></div>
+          <button class="del" style="margin-left:6px" onclick="event.stopPropagation();delProduto('${p.id}')" title="Mover para a lixeira" aria-label="Mover para a lixeira">${ICO_LIXO}</button></div>
         <div class="pd">${p.resumo}</div>
         ${open?`<div class="expand" onclick="event.stopPropagation()" style="margin-top:10px">
           <div class="sec" style="font-size:12px;margin-bottom:6px">Contas que teriam sido alvo (${cruz.length}) · receita potencial que ficou na mesa ${fmtK(recTot)}</div>
@@ -2643,9 +2793,10 @@ function vMetas(){
       return `<div class="sec" style="margin-top:18px;opacity:.7">Agendados (${fut.length}) — janela ainda não abriu</div>
       ${fut.map(p=>`<div class="prod" style="opacity:.7">
         <div class="pt">◷ ${p.nome} <span class="pill mut">${p.tipo}</span> <span class="pill sky">${statusProduto(p).label}</span>
-          <button class="del" style="margin-left:auto" onclick="event.stopPropagation();delProduto('${p.id}')">✕</button></div>
+          <button class="del" style="margin-left:auto" onclick="event.stopPropagation();delProduto('${p.id}')" title="Mover para a lixeira" aria-label="Mover para a lixeira">${ICO_LIXO}</button></div>
         <div class="pd">${p.resumo}</div></div>`).join("")}`;
     })()}
+    ${lixeiraHTML()}
   </div>
   <div class="card mt">
     <div class="sec">Esteira de produção — pacotes por cliente (2+ oportunidades juntas)</div>
@@ -3589,7 +3740,7 @@ function lerCamposRascunho(soNovo){
   if(!campos.length) return null;
   const form=document.getElementById("formprod");
   const r={aberto:!!(form && form.style.display!=="none"), campos:{}, foco:null};
-  campos.forEach(el=>{ r.campos[el.id]= el.multiple ? [...el.selectedOptions].map(o=>o.value) : el.value; });
+  campos.forEach(el=>{ r.campos[el.id]= el.type==="checkbox" ? el.checked : (el.multiple ? [...el.selectedOptions].map(o=>o.value) : el.value); });
   const a=document.activeElement;
   if(a && a.id && Object.prototype.hasOwnProperty.call(r.campos,a.id)) r.foco={id:a.id,s:a.selectionStart,e:a.selectionEnd};
   return r;
@@ -3608,7 +3759,7 @@ function restauraRascunho(r){
   const form=document.getElementById("formprod"); if(form && r.aberto) form.style.display="block";
   Object.keys(r.campos).forEach(id=>{
     const el=document.getElementById(id); if(!el) return; const v=r.campos[id];
-    if(el.multiple){ [...el.options].forEach(o=>{ o.selected=v.indexOf(o.value)!==-1; }); } else { el.value=v; }
+    if(el.type==="checkbox"){ el.checked=!!v; } else if(el.multiple){ [...el.options].forEach(o=>{ o.selected=v.indexOf(o.value)!==-1; }); } else { el.value=v; }
   });
   if(r.foco){ const el=document.getElementById(r.foco.id); if(el){ el.focus(); try{ el.setSelectionRange(r.foco.s,r.foco.e); }catch(e){} } }
 }
@@ -3660,7 +3811,7 @@ document.querySelectorAll(".nv[data-v]").forEach(t=>t.onclick=()=>{contaSel=null
   aplica();
 })();
 // ================= BACKUP DOS DADOS =================
-const CHAVES = ["bfr_boletas_jul26","bfr_overrides_v1","bfr_crm_v1","bfr_produtos_v1","bfr_produtos_v3_ago26","bfr_metas_v1","bfr_mix_v1","bfr_sim_v3","bfr_atualizacao_v1","bfr_brapi_token"];
+const CHAVES = ["bfr_boletas_jul26","bfr_overrides_v1","bfr_crm_v1","bfr_produtos_v1","bfr_produtos_v3_ago26","bfr_produtos_lixeira_v1","bfr_metas_v1","bfr_mix_v1","bfr_sim_v3","bfr_atualizacao_v1","bfr_brapi_token"];
 function exportarBackup(){
   const dump = {versao:1, gerado:new Date().toISOString(), dados:{}};
   CHAVES.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v) dump.dados[k]=v; }catch(e){} });
