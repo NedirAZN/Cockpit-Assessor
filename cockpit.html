@@ -314,14 +314,15 @@ try{ const s=localStorage.getItem(PKEY); if(s){ const j=JSON.parse(s); if(Array.
 function saveProd(){ try{ localStorage.setItem(PKEY, JSON.stringify(PRODUTOS)); }catch(e){} }
 function addProduto(){
   const g=id=>document.getElementById(id);
-  const nome=(g("p_nome").value||"").trim(); if(!nome) return;
+  const nome=(g("p_nome").value||"").trim();
+  if(!nome){ const n=g("p_nome"); n.focus(); n.style.borderColor="var(--red)"; n.placeholder="Informe o nome do produto para salvar"; return; }
   PRODUTOS.push({id:"p"+Date.now(), nome, tipo:g("p_tipo").value, cor:g("p_cor").value,
     resumo:(g("p_res").value||"").trim(), classeMeta:g("p_classe").value,
     roa:parseFloat(g("p_roa").value)||1.5, publico:g("p_pub").value,
     indexador:g("p_idx").value, spread:parseFloat(g("p_spread").value)||null,
     gatilhos:[...g("p_gat").selectedOptions].map(o=>o.value),
     capIni:g("p_ini").value||null, capFim:g("p_fim").value||null, mesRef:mesRefAtual()});
-  saveProd(); recalcRadar(); render('metas');
+  saveProd(); recalcRadar(); window.__semRascunho=true; render('metas');
 }
 function delProduto(id){
   const p = PRODUTOS.find(x=>x.id===id);
@@ -330,7 +331,7 @@ function delProduto(id){
   if(!ok) return;
   PRODUTOS=PRODUTOS.filter(p=>p.id!==id); saveProd(); recalcRadar(); render('metas');
 }
-function resetProdutos(){ PRODUTOS=JSON.parse(JSON.stringify(PRODUTOS_SEED)); saveProd(); recalcRadar(); render('metas'); }
+function resetProdutos(){ PRODUTOS=JSON.parse(JSON.stringify(PRODUTOS_SEED)); saveProd(); recalcRadar(); window.__semRascunho=true; render('metas'); }
 const GATILHOS_DISP = ["Caixa acima de 30%","Caixa 20–30%","Folga sobre a reserva","Sem proteção IPCA","Sem internacional",
   "Abaixo do CDI 12M","Vértice concentrado (IPCA)","Concentração em ação","Concentração em FII","Concentração em fundo",
   "Concentração bancária","Acima do FGC","Proteção GLD 3–5%","Já opera estruturadas","Posições em perda","Falsa liquidez"];
@@ -521,7 +522,7 @@ function salvarEdicaoProduto(id){
   p.capFim = val("e_fim") || null;
   p.resumo = val("e_res") ?? p.resumo;
   const gsel = gv("e_gat"); if(gsel) p.gatilhos = [...gsel.selectedOptions].map(o=>o.value);
-  saveProd(); recalcRadar(); render('metas');
+  saveProd(); recalcRadar(); window.__semRascunho=true; render('metas');
 }
 function limparHistorico(){ if(confirm('Apagar TODO o histórico de fechamentos? Esta ação não pode ser desfeita.')){ MET.historico=[]; saveMET(); render('metas'); } }
 
@@ -1459,6 +1460,28 @@ function tickRelogio(){
   const data = `${DIAS_PT[d.getDay()]}, ${d.getDate()} ${MES_PT[d.getMonth()]} ${d.getFullYear()}`;
   el.innerHTML = `<span style="color:var(--gold)">🕒</span> <span style="color:var(--mut)">${data} · <b style="color:var(--ink,#e6edf7)">${hh}:${mm}</b>:${ss}</span>`;
 }
+// true quando o cursor está num campo de formulário da tela: refazer a tela agora apagaria o que está sendo digitado
+// true quando o formulário "Novo produto" está aberto na tela
+function formProdAberto(){ const f=document.getElementById("formprod"); return !!(f && f.style.display!=="none"); }
+// true quando QUALQUER campo da tela foi alterado e ainda não salvo (mesmo sem foco nele): refazer a tela apagaria o que foi digitado
+function temAlteracaoPendente(){
+  const v=document.getElementById("view"); if(!v) return false;
+  return [...v.querySelectorAll("input,textarea,select")].some(el=>{
+    if(el.classList.contains("search")) return false;
+    if(el.tagName==="SELECT"){
+      if(el.multiple) return [...el.options].some(o=>o.selected!==o.defaultSelected);
+      const padrao=[...el.options].findIndex(o=>o.defaultSelected);
+      return el.selectedIndex!==(padrao<0?0:padrao);
+    }
+    if(el.type==="checkbox"||el.type==="radio") return el.checked!==el.defaultChecked;
+    if(el.type==="file") return false;
+    return el.value!==el.defaultValue;
+  });
+}
+function emEdicao(){
+  const a=document.activeElement;
+  return !!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.closest && a.closest("#view") && !a.classList.contains("search"));
+}
 let _minutoAtual = new Date().getMinutes();
 function loopRelogio(){
   tickRelogio();
@@ -1468,7 +1491,7 @@ function loopRelogio(){
     _minutoAtual = m;
     try{
       if(typeof recalcRadar==="function") recalcRadar();          // janelas de captação encerrando
-      if(typeof render==="function" && typeof curView!=="undefined") render(curView);
+      if(typeof render==="function" && typeof curView!=="undefined" && !emEdicao() && !formProdAberto() && !temAlteracaoPendente()) render(curView);
     }catch(e){}
   }
 }
@@ -2504,7 +2527,7 @@ function vMetas(){
   <div class="card mt">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
       <div class="sec" style="margin:0">Cadastro de produtos</div>
-      <button onclick="document.getElementById('formprod').style.display=document.getElementById('formprod').style.display==='none'?'block':'none'" style="background:var(--panel2);border:1px solid var(--line);color:var(--gold);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">+ Novo produto</button>
+      <button onclick="document.getElementById('formprod').style.display=document.getElementById('formprod').style.display==='none'?'block':'none';gravaRascunho()" style="background:var(--panel2);border:1px solid var(--line);color:var(--gold);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">+ Novo produto</button>
       <button onclick="if(confirm('Restaurar os 4 produtos originais? Os cadastrados serão perdidos.'))resetProdutos()" style="background:none;border:none;color:var(--dim);font-size:11px;cursor:pointer">restaurar padrão</button>
       <span class="sub" style="margin-left:auto">${PRODUTOS.length} produto(s) ativo(s)</span>
     </div>
@@ -3558,6 +3581,37 @@ function openReport(){const html=buildReportHTML();let w=null;try{w=window.open(
 
 
 const NAV_TITULOS={cons:"Consolidado",ops:"Radar de Oportunidades",ativos:"Produtos & Ativos",metas:"Metas do Mês",macro:"Indicadores",msgs:"Mensagens",cli:"Clientes",sim:"Simulação"};
+// Rascunho do cadastro/edição de produto: qualquer re-render da aba Metas devolve o que já foi digitado
+const RASC_KEY="bfr_rascunho_prod";   // sessionStorage: fora da lista do sync.js, não vai para o banco
+function lerCamposRascunho(soNovo){
+  const sel=soNovo?'#view [id^="p_"]':'#view [id^="p_"], #view [id^="e_"]';
+  const campos=[...document.querySelectorAll(sel)];
+  if(!campos.length) return null;
+  const form=document.getElementById("formprod");
+  const r={aberto:!!(form && form.style.display!=="none"), campos:{}, foco:null};
+  campos.forEach(el=>{ r.campos[el.id]= el.multiple ? [...el.selectedOptions].map(o=>o.value) : el.value; });
+  const a=document.activeElement;
+  if(a && a.id && Object.prototype.hasOwnProperty.call(r.campos,a.id)) r.foco={id:a.id,s:a.selectionStart,e:a.selectionEnd};
+  return r;
+}
+function gravaRascunho(){ try{ const r=lerCamposRascunho(true); if(r) sessionStorage.setItem(RASC_KEY, JSON.stringify(r)); }catch(e){} }
+function rascunhoSalvo(){ try{ const j=sessionStorage.getItem(RASC_KEY); return j?JSON.parse(j):null; }catch(e){ return null; } }
+function limpaRascunho(){ try{ sessionStorage.removeItem(RASC_KEY); }catch(e){} }
+["input","change"].forEach(ev=>document.addEventListener(ev,function(e){ const t=e.target; if(t && t.id && t.id.indexOf("p_")===0) gravaRascunho(); },true));
+function capturaRascunho(v){
+  if(v!=="metas") return null;
+  if(window.__semRascunho){ window.__semRascunho=false; limpaRascunho(); return null; }
+  return lerCamposRascunho(false);
+}
+function restauraRascunho(r){
+  if(!r) return;
+  const form=document.getElementById("formprod"); if(form && r.aberto) form.style.display="block";
+  Object.keys(r.campos).forEach(id=>{
+    const el=document.getElementById(id); if(!el) return; const v=r.campos[id];
+    if(el.multiple){ [...el.options].forEach(o=>{ o.selected=v.indexOf(o.value)!==-1; }); } else { el.value=v; }
+  });
+  if(r.foco){ const el=document.getElementById(r.foco.id); if(el){ el.focus(); try{ el.setSelectionRange(r.foco.s,r.foco.e); }catch(e){} } }
+}
 function render(v){
   curView = v;
   // preservar foco/cursor de um campo de busca (evita perder o cursor a cada tecla)
@@ -3574,7 +3628,10 @@ function render(v){
   document.querySelectorAll(".nv[data-v]").forEach(t=>{const _on=t.dataset.v===v; t.classList.toggle("on",_on); if(_on) t.setAttribute("aria-current","page"); else t.removeAttribute("aria-current");});
   const _vt=document.getElementById("vtitle"); if(_vt) _vt.textContent=NAV_TITULOS[v]||NAV_TITULOS.cli;
   const el = document.getElementById("view");
+  const _sem = !!window.__semRascunho;
+  const _rasc = capturaRascunho(v);
   el.innerHTML = v==="cons"?vConsolidado():v==="ops"?vOps():v==="ativos"?vAtivos():v==="metas"?vMetas():v==="macro"?vMacro():v==="msgs"?vMsgs():v==="sim"?vSim():vClientes();
+  restauraRascunho(_rasc || (v==="metas" && !_sem ? rascunhoSalvo() : null));
   if(v==="macro") carregaMacro(false);
   if(v==="ativos" && !window.__cotIniciado){ window.__cotIniciado=true; buscaCotacoes(ATIVOS.slice(0,40).map(a=>tickerDe(a.ativo))); }
   if(v==="sim") SIM.mount();
@@ -3603,7 +3660,7 @@ document.querySelectorAll(".nv[data-v]").forEach(t=>t.onclick=()=>{contaSel=null
   aplica();
 })();
 // ================= BACKUP DOS DADOS =================
-const CHAVES = ["bfr_boletas_jul26","bfr_overrides_v1","bfr_crm_v1","bfr_produtos_v1","bfr_brapi_token"];
+const CHAVES = ["bfr_boletas_jul26","bfr_overrides_v1","bfr_crm_v1","bfr_produtos_v1","bfr_produtos_v3_ago26","bfr_metas_v1","bfr_mix_v1","bfr_sim_v3","bfr_atualizacao_v1","bfr_brapi_token"];
 function exportarBackup(){
   const dump = {versao:1, gerado:new Date().toISOString(), dados:{}};
   CHAVES.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v) dump.dados[k]=v; }catch(e){} });
