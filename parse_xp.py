@@ -498,6 +498,25 @@ def conferir(dados):
             avisos.append(f"soma das estratégias ({brl(soma_estr)}) difere do "
                           f"patrimônio em {dif:.1%}")
 
+    # Conferência por estratégia montada ("Collar UI - SMAL11", "Call - ABEV3"…): a soma das
+    # posições lidas sob ela deve bater com o saldo dela na página de composição. Se não bate,
+    # alguma posição foi lida sob a estratégia errada. As estratégias de sempre ficam de fora:
+    # Caixa e Proventos não viram posição e o saldo de Pós Fixado inclui caixa, então dariam
+    # alarme falso em quase toda conta.
+    padrao = {"Pós Fixado", "Pré Fixado", "Inflação", "Renda Variável Brasil",
+              "Renda Variável Global", "Fundos Listados", "Alternativo",
+              "Multimercado", "Renda Fixa Global", "Caixa", "Proventos"}
+    lido = {}
+    for p in dados["posicoes"]:
+        lido[p["estrategia"]] = lido.get(p["estrategia"], 0) + (p["saldo"] or 0)
+    for e in dados["estrategias"]:
+        if e["nome"] in padrao or e["saldo"] is None:
+            continue
+        soma_lida = lido.get(e["nome"], 0)
+        if abs(soma_lida - e["saldo"]) > max(50, abs(e["saldo"]) * 0.02):
+            avisos.append(f"estratégia '{e['nome']}': posições somam {brl(soma_lida)}, "
+                          f"o relatório diz {brl(e['saldo'])} — posição lida sob a estratégia errada?")
+
     # ARMADILHA 1: quantidade perdida indica coluna lida errado.
     sem_qtd = [p for p in dados["posicoes"] if p["qtd"] is None and (p["saldo"] or 0) > 0]
     if len(sem_qtd) > len(dados["posicoes"]) * 0.3:

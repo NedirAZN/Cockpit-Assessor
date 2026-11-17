@@ -1106,13 +1106,21 @@ async function carregaMacro(force){
 }
 
 // ---------- COTAÇÕES B3 (brapi.dev) ----------
-// Plano gratuito: 15.000 req/mês com token. PETR4/VALE3/MGLU3/ITUB4 funcionam SEM token.
+// Plano gratuito da brapi: 1 ticker por chamada, dado com ~30 min de atraso e 15.000 chamadas por mês.
+// Por isso a busca passa pelo servidor (/api/cotacoes): ele chama um ticker por vez, guarda cache e conta o uso.
+// O token fica na variável BRAPI_TOKEN do Railway; o campo da tela só vale se a variável não existir.
 const BKEY_TOKEN = "bfr_brapi_token";
-const BRAPI_DEFAULT = "rXj86eAV1kvatTR9mDRKML";
-let BRAPI_TOKEN = BRAPI_DEFAULT;
-try{ BRAPI_TOKEN = localStorage.getItem(BKEY_TOKEN) || BRAPI_DEFAULT; }catch(e){}
-let COT = {};        // ticker -> {preco, var, nome, hora}
+let BRAPI_TOKEN = "";
+try{ BRAPI_TOKEN = localStorage.getItem(BKEY_TOKEN) || ""; }catch(e){}
+const BKEY_COT = "bfr_cot_cache_v1";
+let COT = {};        // ticker -> {preco, vari, nome, hora}
+let COT_TS = 0;      // quando a última busca terminou (ms)
 let cotStatus = "";
+let cotUso = null;   // {n, limite}
+try{
+  const _c = JSON.parse(localStorage.getItem(BKEY_COT)||"null");
+  if(_c && _c.d && Date.now()-_c.t < 12*3600*1000){ COT = _c.d; COT_TS = _c.t; }
+}catch(e){}
 const RE_TICKER = /^([A-Z]{4}(?:3|4|11|5|6|1))\b/;
 
 function tickerDe(ativo){
@@ -1123,40 +1131,143 @@ function salvaToken(v){
   BRAPI_TOKEN = (v||"").trim();
   try{ localStorage.setItem(BKEY_TOKEN, BRAPI_TOKEN); }catch(e){}
 }
+function cotVelha(min){ return !COT_TS || Date.now()-COT_TS > (min||30)*60000; }
+// tickers dos maiores volumes primeiro: se a cota do mês apertar, o que importa já está carregado
+function tickersPrioritarios(n){
+  const vistos = new Set(), out = [];
+  for(const a of ATIVOS){
+    const t = tickerDe(a.ativo);
+    if(t && !vistos.has(t)){ vistos.add(t); out.push(t); if(out.length>=n) break; }
+  }
+  return out;
+}
 async function buscaCotacoes(tickers){
-  const uniq = [...new Set(tickers.filter(Boolean))];
-  if(!uniq.length) return;
-  cotStatus = "Buscando cotações…"; if(curView==="ativos") render("ativos");
-  let ok=0, fail=0;
-  const lote = BRAPI_TOKEN ? 10 : 4;
-  for(let i=0;i<uniq.length;i+=lote){
-    const grupo = uniq.slice(i,i+lote);
+  const uniq = [...new Set((tickers||[]).filter(Boolean))];
+  if(!uniq.length || window.__cotBuscando) return;
+  window.__cotBuscando = true;
+  cotStatus = `Buscando ${uniq.length} cotações…`; if(curView==="ativos") render("ativos");
+  let ok=0, sem=0, aviso="";
+  const tk = BRAPI_TOKEN ? `&token=${encodeURIComponent(BRAPI_TOKEN)}` : "";
+  for(let i=0;i<uniq.length;i+=5){
+    const grupo = uniq.slice(i,i+5);
     try{
-      const tk = BRAPI_TOKEN ? `?token=${encodeURIComponent(BRAPI_TOKEN)}` : "";
-      const r = await fetch(`https://brapi.dev/api/quote/${grupo.join(",")}${tk}`, {cache:"no-store"});
-      if(!r.ok) throw new Error(r.status);
+      const r = await fetch(`/api/cotacoes?tickers=${encodeURIComponent(grupo.join(","))}${tk}`, {cache:"no-store"});
+      if(r.status===401){ aviso="sessão expirada — entre de novo"; break; }
+      if(!r.ok){ aviso = r.status===429 ? "limite mensal da brapi atingido — usando o que já está guardado" : `servidor respondeu ${r.status}`; break; }
       const j = await r.json();
+      cotUso = {n:j.uso_mes, limite:j.limite_mes};
       (j.results||[]).forEach(x=>{
+        if(x.erro || x.regularMarketPrice==null){ sem++; return; }
         COT[x.symbol] = {preco:x.regularMarketPrice, vari:x.regularMarketChangePercent,
-                         nome:x.shortName||x.longName||x.symbol, hora:x.regularMarketTime};
+                         nome:x.longName||x.shortName||x.symbol, hora:x.regularMarketTime};
         ok++;
       });
-    }catch(e){ fail++; }
-    if(!BRAPI_TOKEN && i>=8) break; // sem token só os liberados
+      if(j.aviso){ aviso = j.aviso; if(j.parar) break; }
+    }catch(e){ aviso="não deu para falar com o servidor"; break; }
   }
-  cotStatus = ok ? `✓ ${ok} cotações atualizadas${fail?` · ${fail} lotes falharam`:""}`
-                 : `Não foi possível buscar (navegador pode bloquear ao abrir do disco, ou token ausente/inválido)`;
+  window.__cotBuscando = false;
+  if(ok){ COT_TS = Date.now(); try{ localStorage.setItem(BKEY_COT, JSON.stringify({t:COT_TS,d:COT})); }catch(e){} }
+  const quando = COT_TS ? new Date(COT_TS).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "";
+  cotStatus = ok ? `✓ ${ok} cotações · ${quando}${sem?` · ${sem} sem cotação`:""}${aviso?` · ${aviso}`:""}`
+                 : (aviso || "Não foi possível buscar as cotações agora");
   if(curView==="ativos") render("ativos");
   if(curView==="macro") render("macro");
 }
 async function buscaIbov(){
   try{
-    const tk = BRAPI_TOKEN ? `?token=${encodeURIComponent(BRAPI_TOKEN)}` : "";
-    const r = await fetch(`https://brapi.dev/api/quote/%5EBVSP${tk}`, {cache:"no-store"});
+    const tk = BRAPI_TOKEN ? `&token=${encodeURIComponent(BRAPI_TOKEN)}` : "";
+    const r = await fetch(`/api/cotacoes?tickers=%5EBVSP${tk}`, {cache:"no-store"});
+    if(!r.ok) return;
     const j = await r.json();
     const x = (j.results||[])[0];
-    if(x){ window.__ibov = x.regularMarketPrice; window.__ibovVar = x.regularMarketChangePercent; if(curView==="macro") render("macro"); }
+    if(x && x.regularMarketPrice!=null){ window.__ibov = x.regularMarketPrice; window.__ibovVar = x.regularMarketChangePercent; if(curView==="macro") render("macro"); }
   }catch(e){}
+}
+
+// ---------- FICHA DO ATIVO (perfil + 3 meses) ----------
+let FICHA = {};
+const fEsc = t => String(t==null?"":t).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function abreFicha(t){
+  if(!t || (FICHA[t] && !FICHA[t].erro)) return;
+  FICHA[t] = {carregando:true}; if(curView==="ativos") render("ativos");
+  try{
+    const tk = BRAPI_TOKEN ? `?token=${encodeURIComponent(BRAPI_TOKEN)}` : "";
+    const r = await fetch(`/api/ativo/${encodeURIComponent(t)}${tk}`, {cache:"no-store"});
+    if(!r.ok) throw new Error(r.status===401 ? "sessão expirada" : r.status===429 ? "limite mensal da brapi" : `erro ${r.status}`);
+    FICHA[t] = await r.json();
+  }catch(e){ FICHA[t] = {erro:String(e.message||e)}; }
+  if(curView==="ativos") render("ativos");
+}
+function fichaAuto(){
+  if(!ativoSel) return;
+  const t = tickerDe(String(ativoSel).split("||")[0]);
+  if(t) abreFicha(t);
+}
+function fichaHTML(a){
+  const t = tickerDe(a.ativo); if(!t) return "";
+  const f = FICHA[t];
+  const btn = "background:var(--panel2);border:1px solid var(--line);color:var(--sky);border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer";
+  if(!f) return `<div style="margin-bottom:12px"><button style="${btn}" onclick="event.stopPropagation();abreFicha('${t}')">Ver ficha de ${t}</button></div>`;
+  if(f.carregando) return `<div class="hint" style="margin:0 0 12px">Carregando a ficha de ${t}…</div>`;
+  if(f.erro) return `<div class="hint" style="margin:0 0 12px">Ficha de ${t} indisponível agora (${fEsc(f.erro)}). <span style="color:var(--sky);cursor:pointer" onclick="event.stopPropagation();FICHA['${t}']=null;abreFicha('${t}')">tentar de novo</span></div>`;
+  const h = (f.hist||[]).filter(x=>x.c!=null);
+  const pf = f.perfil||{};
+  let spark = "";
+  if(h.length>=2){
+    const W=320, H=64, cl=h.map(x=>x.c), mn=Math.min(...cl), mx=Math.max(...cl), span=(mx-mn)||1;
+    const pts = h.map((x,i)=>`${(i/(h.length-1)*W).toFixed(1)},${(H-4-(x.c-mn)/span*(H-8)).toFixed(1)}`).join(" ");
+    const ult = cl[cl.length-1], pri = cl[0];
+    const v3 = (ult/pri-1)*100;
+    const alvo = h[h.length-1].d - 30*86400;
+    const ref1 = h.find(x=>x.d>=alvo) || h[0];
+    const v1 = (ult/ref1.c-1)*100;
+    const cor = v3>=0 ? "var(--green)" : "var(--red)";
+    const sg = v => (v>=0?"+":"")+fp(v);
+    spark = `<div style="flex:0 0 auto">
+      <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Preço de ${t} nos últimos 3 meses"><polyline fill="none" stroke="${cor}" stroke-width="1.8" points="${pts}"/></svg>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--mut);margin-top:3px;width:${W}px">
+        <span>mín R$ ${mn.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        <span>1 mês <b class="${cls(v1)}">${sg(v1)}</b> · 3 meses <b class="${cls(v3)}">${sg(v3)}</b></span>
+        <span>máx R$ ${mx.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+      </div></div>`;
+  }
+  const site = /^https?:\/\//i.test(pf.site||"") ? `<a href="${fEsc(pf.site)}" target="_blank" rel="noopener" style="color:var(--sky)" onclick="event.stopPropagation()">site</a>` : "";
+  const quem = [pf.setor, pf.industria].filter(Boolean).map(fEsc).join(" · ");
+  return `<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start;margin-bottom:14px;padding:12px;background:var(--panel2);border:1px solid var(--line);border-radius:10px" onclick="event.stopPropagation()">
+    <div style="flex:1 1 260px;min-width:0">
+      <div style="font-weight:600;font-size:13px">${fEsc(pf.nome||(COT[t]&&COT[t].nome)||t)} ${site}</div>
+      ${quem?`<div style="font-size:11.5px;color:var(--mut);margin:2px 0 6px">${quem}</div>`:""}
+      ${pf.resumo?`<div style="font-size:12px;color:var(--mut);line-height:1.45">${fEsc(pf.resumo)}</div>`:""}
+    </div>${spark}</div>`;
+}
+
+// ---------- QUEM LIGAR HOJE (maiores variações entre os papéis dos clientes) ----------
+let ligarSel = null;
+function cardLigarHoje(){
+  const itens = ATIVOS.map(a=>{ const t=tickerDe(a.ativo); const q=t&&COT[t]; return (q&&q.vari!=null) ? {a,t,q} : null; }).filter(Boolean);
+  const cab = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px"><div class="sec" style="margin:0">Quem ligar hoje</div>`;
+  if(!itens.length) return `<div class="card mt">${cab}</div><div class="hint">Atualize as cotações para ver as maiores altas e quedas entre os papéis que seus clientes têm.</div></div>`;
+  const altas = itens.filter(x=>x.q.vari>0).sort((x,y)=>y.q.vari-x.q.vari).slice(0,5);
+  const quedas = itens.filter(x=>x.q.vari<0).sort((x,y)=>x.q.vari-y.q.vari).slice(0,5);
+  const quando = COT_TS ? new Date(COT_TS).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "";
+  const linha = x => {
+    const aberto = ligarSel===x.t;
+    const contas_ = x.a.clientes.slice(0,12);
+    return `<div style="border-top:1px solid var(--line)">
+      <div class="leg" style="cursor:pointer;padding:7px 0" onclick="ligarSel=${aberto?"null":`'${x.t}'`};render('ativos')">
+        <span class="nm"><span style="color:var(--dim);font-size:10px">${aberto?"▾":"▸"}</span> <b>${x.t}</b> <span style="color:var(--mut);font-size:11.5px">R$ ${x.q.preco.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</span></span>
+        <span><b class="${cls(x.q.vari)}">${x.q.vari>=0?"+":""}${fp(x.q.vari)}</b> <span style="color:var(--mut);font-size:11.5px">· ${x.a.n} cli · ${fmtK(x.a.vol)}</span></span>
+      </div>
+      ${aberto?`<div style="padding:2px 0 10px 16px">${contas_.map(cl=>`<div class="leg" style="font-size:12px;cursor:pointer" onclick="abrirCliente('${cl.conta}')"><span class="nm" style="font-weight:600">${cl.conta}${cpBtn(cl.conta)} <span style="color:var(--mut);font-weight:400">${cl.segmento||""}</span></span><span style="color:var(--mut)">${fmt(cl.saldo)} · ${fp(cl.aloc)} da carteira</span></div>`).join("")}${x.a.clientes.length>12?`<div class="hint" style="margin:4px 0 0">+ ${x.a.clientes.length-12} conta(s) menores — abra o ativo na tabela para ver todas.</div>`:""}</div>`:""}
+    </div>`;
+  };
+  return `<div class="card mt">${cab}<span class="sub" style="margin-left:auto">${itens.length} papéis com cotação · atualizado às ${quando} (atraso de ~30 min)</span></div>
+    <div class="grid g2">
+      <div><div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--green);margin-bottom:4px">Maiores altas</div>${altas.length?altas.map(linha).join(""):`<div class="hint">Nenhuma alta entre os papéis carregados.</div>`}</div>
+      <div><div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--red);margin-bottom:4px">Maiores quedas</div>${quedas.length?quedas.map(linha).join(""):`<div class="hint">Nenhuma queda entre os papéis carregados.</div>`}</div>
+    </div>
+    <div class="hint">Clique no papel para ver as contas expostas. Útil para abrir a conversa com quem tem posição relevante no que mais mexeu hoje.</div>
+  </div>`;
 }
 
 // ---------- CAPTAÇÃO LÍQUIDA (dinheiro novo, não realocação) ----------
@@ -1566,21 +1677,76 @@ const totOps = contas.reduce((s,c)=>s+c.flags.length,0);
 const potencial = contas.reduce((s,c)=>s+c.flags.reduce((x,f)=>x+(f.valor||0),0),0);
 
 // ---------- agregação por ativo ----------
-const ATIVOS = (()=>{
+// Um mesmo papel pode aparecer em estratégias diferentes (ex.: ENEV3 solto numa conta e dentro
+// de "Collar UI - SMAL11" em outra). Antes o ativo ficava com a estratégia da PRIMEIRA conta lida,
+// e a lista da classe não batia com os números da classe. Agora há duas visões:
+//   ATIVOS_ES — um item por (ativo, estratégia): alimenta a tela de cada classe;
+//   ATIVOS    — um item por ativo, com a estratégia de maior volume: tabela geral e busca.
+const ATIVOS_ES = (()=>{
   const m = {};
   contas.forEach(c=>c.posicoes.forEach(p=>{
     if(!p.saldo) return;
-    const k = p.ativo;
-    if(!m[k]) m[k] = {ativo:k, estrategia:p.estrategia, vol:0, clientes:[]};
+    const k = p.ativo+"||"+(p.estrategia||"");
+    if(!m[k]) m[k] = {chave:k, ativo:p.ativo, estrategia:p.estrategia, vol:0, clientes:[]};
     m[k].vol += p.saldo;
-    m[k].clientes.push({conta:c.conta, segmento:c.segmento, saldo:p.saldo, aloc:p.aloc, rent_ano:p.rent_ano});
+    m[k].clientes.push({conta:c.conta, segmento:c.segmento, saldo:p.saldo, aloc:p.aloc, rent_ano:p.rent_ano, estrategia:p.estrategia});
   }));
   return Object.values(m).map(a=>{
-    a.n = a.clientes.length;
+    a.n = new Set(a.clientes.map(x=>x.conta)).size;
     a.clientes.sort((x,y)=>y.saldo-x.saldo);
     return a;
   }).sort((a,b)=>b.vol-a.vol);
 })();
+const ATIVOS = (()=>{
+  const m = {};
+  ATIVOS_ES.forEach(e=>{
+    const g = m[e.ativo] || (m[e.ativo] = {chave:e.ativo, ativo:e.ativo, estrategia:e.estrategia, vol:0, clientes:[], estrategias:[]});
+    g.vol += e.vol;
+    g.clientes.push(...e.clientes);
+    g.estrategias.push({nome:e.estrategia, vol:e.vol});
+  });
+  return Object.values(m).map(a=>{
+    a.estrategias.sort((x,y)=>y.vol-x.vol);
+    a.estrategia = a.estrategias[0].nome;          // a de maior volume
+    a.n = new Set(a.clientes.map(x=>x.conta)).size;
+    a.clientes.sort((x,y)=>y.saldo-x.saldo);
+    return a;
+  }).sort((a,b)=>b.vol-a.vol);
+})();
+
+// Estratégia montada em torno de um ativo ("Collar UI - SMAL11", "Call - ABEV3"): devolve o ativo-objeto.
+function subjacenteDaEstrategia(nome){
+  const m = /[-–]\s*([A-Z]{4}\d{1,2})\s*$/.exec(nome||"");
+  return m ? m[1] : null;
+}
+function objetoPill(estr, ativo){
+  const sub = subjacenteDaEstrategia(estr);
+  return (sub && String(ativo).trim().toUpperCase().startsWith(sub))
+    ? ` <span class="pill violet" style="font-size:9px">ativo-objeto</span>` : "";
+}
+const ESTR_PADRAO = new Set(["Pós Fixado","Pré Fixado","Inflação","Renda Variável Brasil","Renda Variável Global",
+  "Fundos Listados","Alternativo","Multimercado","Renda Fixa Global","Caixa","Proventos"]);
+// Conferência com o relatório: nas estratégias montadas, a soma das posições lidas deve bater com o
+// saldo da estratégia na página de composição do PDF. Diferença = posição lida sob a estratégia errada.
+function diagEstrategia(nome){
+  if(!nome || nome===COE_CLASS || nome===DERIV_CLASS || ESTR_PADRAO.has(nome)) return "";
+  const sub = subjacenteDaEstrategia(nome);
+  const dif = [];
+  let nPos=0, nObj=0;
+  contas.forEach(c=>{
+    const ps = (c.posicoes||[]).filter(p=>p.estrategia===nome && p.saldo);
+    if(!ps.length) return;
+    ps.forEach(p=>{ nPos++; if(sub && String(p.ativo).trim().toUpperCase().startsWith(sub)) nObj++; });
+    const est = (c.estrategias||[]).find(e=>e.nome===nome);
+    if(!est) return;
+    const soma = ps.reduce((t,p)=>t+(p.saldo||0),0), rel = est.saldo||0;
+    if(Math.abs(soma-rel) > Math.max(50, Math.abs(rel)*0.02)) dif.push({conta:c.conta, soma, rel});
+  });
+  const linhas = [];
+  if(sub) linhas.push(`Ativo-objeto: <b>${sub}</b> — aparece em ${nObj} das ${nPos} posições com saldo lidas sob esta estratégia. As pernas de opção têm saldo zero e ficam em <i>Derivativos / Estruturas</i>.`);
+  if(dif.length) linhas.push(`<span style="color:var(--gold)">⚠ Conferência com o relatório:</span> em ${dif.length} conta(s) a soma das posições lidas sob esta estratégia difere do saldo dela na página de composição do PDF (${dif.slice(0,4).map(d=>`<span style="cursor:pointer;color:var(--sky)" onclick="abrirCliente('${d.conta}')">${d.conta}</span>: ${fmt(d.soma)} lido × ${fmt(d.rel)} no relatório`).join("; ")}${dif.length>4?"…":""}). Pode indicar posição lida sob a estratégia errada — vale conferir o PDF dessa conta.`);
+  return linhas.length ? `<div class="hint" style="margin:12px 0 0">${linhas.join("<br>")}</div>` : "";
+}
 
 // ETFs listados no Brasil terminam em 11 mas NÃO são FII
 const RE_ETF = /^(BOVA|IVVB|SMAL|GOLD|HASH|ETHE|COIN|QBTC|DOLA|LFTS|CDII|IMOV|BBSD|SPXI|XINA|EURP|NASD|ACWI|DIVO|FIND|MATB|ISUS|GOVE|PIBB)\d*/i;
@@ -1831,7 +1997,8 @@ function vOps(){
 let ativoSel = null, buscaAtv = "", filtroEstr = null, prodSel = null, prodPassadoSel = null, pacoteSel = null, ordAtv = "vol";
 function vAtivos(){
   const estrs = [...new Set(ATIVOS.map(a=>a.estrategia).filter(Boolean))];
-  let list = ATIVOS.filter(a=>a.ativo.toLowerCase().includes(buscaAtv.toLowerCase()));
+  const porClasseSel = filtroEstr && filtroEstr!==COE_CLASS && filtroEstr!==DERIV_CLASS;
+  let list = (porClasseSel ? ATIVOS_ES : ATIVOS).filter(a=>a.ativo.toLowerCase().includes(buscaAtv.toLowerCase()));
   if(filtroEstr===COE_CLASS) list = list.filter(a=>ehCOE(a.ativo));
   else if(filtroEstr) list = list.filter(a=>a.estrategia===filtroEstr);
   return `
@@ -1844,11 +2011,12 @@ function vAtivos(){
   <div class="card mt">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <div class="sec" style="margin:0">Cotações ao vivo da B3 (brapi.dev)</div>
-      <input class="binput" style="width:230px;padding:6px 10px;font-size:12px" placeholder="Cole seu token gratuito da brapi" value="${BRAPI_TOKEN}" onchange="salvaToken(this.value)">
-      <button onclick="buscaCotacoes(ATIVOS.map(a=>tickerDe(a.ativo)));buscaIbov()" style="background:var(--panel2);border:1px solid var(--line);color:var(--sky);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">↻ Atualizar cotações</button>
-      <span class="sub" style="margin-left:auto">${cotStatus||(BRAPI_TOKEN?"Token configurado ✓ — 154 tickers liberados. Cotações carregam automaticamente ao abrir esta aba.":"Sem token: apenas PETR4, VALE3, MGLU3 e ITUB4.")}</span>
+      <input class="binput" type="password" autocomplete="off" aria-label="Token da brapi (opcional)" style="width:230px;padding:6px 10px;font-size:12px" placeholder="Token brapi (opcional — o servidor já usa o dele)" value="${fEsc(BRAPI_TOKEN)}" onchange="salvaToken(this.value)">
+      <button onclick="buscaCotacoes(tickersPrioritarios(200));buscaIbov()" style="background:var(--panel2);border:1px solid var(--line);color:var(--sky);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">↻ Atualizar cotações</button>
+      <span class="sub" style="margin-left:auto">${cotStatus||(COT_TS?`Cotações guardadas de ${new Date(COT_TS).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}.`:"Plano gratuito: um ticker por chamada e ~30 min de atraso. Clique em Atualizar cotações.")}${cotUso&&cotUso.n!=null?` · uso no mês: ${cotUso.n}/${cotUso.limite}`:""}</span>
     </div>
   </div>
+  ${cardLigarHoje()}
   <div class="mt">
     <input class="search" placeholder="Buscar ativo… (ex: VALE3, CDB, Tesouro)" value="${buscaAtv}" oninput="buscaAtv=this.value;render('ativos')" />
     <div class="chips">
@@ -1970,7 +2138,7 @@ function vAtivos(){
       </div>`;
     }
     const daClasse=(filtroEstr===COE_CLASS ? ATIVOS.filter(a=>ehCOE(a.ativo))
-                                           : ATIVOS.filter(a=>a.estrategia===filtroEstr)).sort((a,b)=>b.vol-a.vol);
+                                           : ATIVOS_ES.filter(a=>a.estrategia===filtroEstr)).sort((a,b)=>b.vol-a.vol);
     const maisPulv=[...daClasse].sort((a,b)=>b.n-a.n)[0];
     return `<div class="grid g4" style="margin-bottom:14px">
       <div class="card kpi"><div class="lbl">${filtroEstr} · volume</div><div class="val" style="color:${col(filtroEstr)}">${fmtK(x.vol)}</div><div class="det">${fp(x.vol/AUM*100)} do AUM total</div></div>
@@ -2032,12 +2200,13 @@ function vAtivos(){
       <div style="max-height:520px;overflow-y:auto;padding-right:6px">
       ${[...daClasse].sort((p,q)=>ordAtv==="cli"?(q.n-p.n||q.vol-p.vol):(q.vol-p.vol)).map((a,i)=>`<div style="margin-bottom:9px">
         <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;gap:10px">
-          <span style="cursor:pointer" onclick="ativoSel='${a.ativo.replace(/'/g,"\\'")}';render('ativos')"><span style="color:var(--dim);font-size:10px">${i+1}.</span> ${a.ativo}${ehCOE(a.ativo)?` <span class="pill gold" style="font-size:9px">COE</span>`:""}</span>
+          <span style="cursor:pointer" onclick="ativoSel='${(a.chave||a.ativo).replace(/'/g,"\\'")}';render('ativos');fichaAuto()"><span style="color:var(--dim);font-size:10px">${i+1}.</span> ${a.ativo}${objetoPill(filtroEstr,a.ativo)}${ehCOE(a.ativo)?` <span class="pill gold" style="font-size:9px">COE</span>`:""}</span>
           <span style="color:var(--mut);white-space:nowrap">${a.n} cli · ${fmtK(a.vol)} · ${fp(a.vol/x.vol*100)}</span>
         </div>
         <div class="bar"><i style="width:${ordAtv==="cli"?(a.n/Math.max(...daClasse.map(z=>z.n))*100):(a.vol/daClasse[0].vol*100)}%;background:${col(filtroEstr)}"></i></div>
       </div>`).join("")}
       </div>
+      ${diagEstrategia(filtroEstr)}
     </div>`;
   })()}
   <div class="card">
@@ -2052,11 +2221,11 @@ function vAtivos(){
       <tr><th></th><th>Ativo</th><th>Estratégia</th><th class="r">Clientes</th><th class="r">Volume total</th><th class="r">% do AUM</th><th class="r">Cotação B3</th><th>Atuação sugerida</th></tr>
       ${[...list].sort((p,q)=>ordAtv==="cli"?(q.n-p.n||q.vol-p.vol):(q.vol-p.vol)).map(a=>{
         const ac = acaoSugerida(a);
-        const open = ativoSel===a.ativo;
-        return `<tr class="click" onclick="ativoSel=${open?"null":`'${a.ativo.replace(/'/g,"\\'")}'`};render('ativos')">
+        const open = ativoSel===a.chave;
+        return `<tr class="click" onclick="ativoSel=${open?"null":`'${a.chave.replace(/'/g,"\\'")}'`};render('ativos');fichaAuto()">
           <td style="color:var(--dim)">${open?"▾":"▸"}</td>
           <td style="font-weight:600">${a.ativo}${ehCOE(a.ativo)?` <span class="pill ${ehRepack(a.ativo)?"sky":"gold"}" style="font-size:9px">${ehRepack(a.ativo)?"REPACK":"COE"} ${subtipoCOE(a.ativo)==="Bond Repack"?(emissorRepack(a.ativo)||""):subtipoCOE(a.ativo)}</span>`:""}</td>
-          <td><span style="display:inline-flex;align-items:center;gap:6px;color:var(--mut);font-size:12px"><span class="dot" style="background:${col(a.estrategia)}"></span>${a.estrategia||"—"}</span></td>
+          <td><span style="display:inline-flex;align-items:center;gap:6px;color:var(--mut);font-size:12px"><span class="dot" style="background:${col(a.estrategia)}"></span>${a.estrategia||"—"}${a.estrategias&&a.estrategias.length>1?` <span class="pill mut" style="font-size:9px" title="${fEsc(a.estrategias.map(e=>(e.nome||"—")+" · "+fmtK(e.vol)).join(" | "))}">+${a.estrategias.length-1}</span>`:""}</span></td>
           <td class="r">${a.n}</td>
           <td class="r" style="font-weight:600">${fmt(a.vol)}</td>
           <td class="r" style="color:var(--mut)">${fp(a.vol/AUM*100)}</td>
@@ -2065,11 +2234,12 @@ function vAtivos(){
           <td><span class="pill gold">${ac.t}</span></td>
         </tr>
         ${open?`<tr><td colspan="8"><div class="expand">
-          <div style="color:var(--mut);font-size:12.5px;margin-bottom:10px">${ac.d}</div>
+          ${fichaHTML(a)}<div style="color:var(--mut);font-size:12.5px;margin-bottom:10px">${ac.d}</div>
           <table>
-            <tr><th>Conta</th><th>Segmento</th><th class="r">Saldo no ativo</th><th class="r">% da carteira</th><th class="r">Rent. ano</th></tr>
+            <tr><th>Conta</th><th>Segmento</th><th>Estratégia</th><th class="r">Saldo no ativo</th><th class="r">% da carteira</th><th class="r">Rent. ano</th></tr>
             ${a.clientes.map(cl=>`<tr class="click" onclick="event.stopPropagation();abrirCliente('${cl.conta}')">
               <td style="font-weight:600;white-space:nowrap">${cl.conta}${cpBtn(cl.conta)}</td><td style="color:var(--mut)">${cl.segmento||"—"}</td>
+              <td style="color:var(--mut);font-size:12px">${cl.estrategia||"—"}</td>
               <td class="r">${fmt(cl.saldo)}</td><td class="r" style="color:var(--mut)">${fp(cl.aloc)}</td>
               <td class="r ${cls(cl.rent_ano)}">${fp(cl.rent_ano)}</td></tr>`).join("")}
           </table>
@@ -3784,7 +3954,7 @@ function render(v){
   el.innerHTML = v==="cons"?vConsolidado():v==="ops"?vOps():v==="ativos"?vAtivos():v==="metas"?vMetas():v==="macro"?vMacro():v==="msgs"?vMsgs():v==="sim"?vSim():vClientes();
   restauraRascunho(_rasc || (v==="metas" && !_sem ? rascunhoSalvo() : null));
   if(v==="macro") carregaMacro(false);
-  if(v==="ativos" && !window.__cotIniciado){ window.__cotIniciado=true; buscaCotacoes(ATIVOS.slice(0,40).map(a=>tickerDe(a.ativo))); }
+  if(v==="ativos" && !window.__cotIniciado){ window.__cotIniciado=true; if(cotVelha(30)) buscaCotacoes(tickersPrioritarios(60)); }
   if(v==="sim") SIM.mount();
   // restaura foco e posição do cursor no campo de busca
   if(_focoBusca){

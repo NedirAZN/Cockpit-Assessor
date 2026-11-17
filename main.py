@@ -358,54 +358,161 @@ def estatico(nome: str):
 
 
 # ------------------------------------------------------------------ cotações
+#
+# Plano gratuito da brapi: UM ticker por chamada, dado com ~30 min de atraso e 15.000
+# chamadas por mês. Por isso o servidor chama um ticker por vez, guarda cada resposta em
+# cache e conta o uso do mês. O navegador nunca fala com a brapi.
+#
+# Variáveis de ambiente (todas opcionais, exceto o token):
+#   BRAPI_TOKEN        token da brapi (sem ele só PETR4, VALE3, MGLU3 e ITUB4 respondem)
+#   COTACOES_CACHE_S   validade de uma cotação em segundos (padrão 1800 = 30 min)
+#   FICHA_CACHE_S      validade da ficha do ativo (padrão 21600 = 6 h)
+#   BRAPI_LIMITE_MES   trava de segurança de chamadas por mês (padrão 14000)
 
-_COTACOES_CACHE: dict[str, tuple[float, dict]] = {}
-CACHE_SEGUNDOS = int(os.environ.get("COTACOES_CACHE_S", "60"))
+import re
+import threading
+
+BRAPI = "https://brapi.dev/api/v2/stocks"
+COT_TTL = int(os.environ.get("COTACOES_CACHE_S", "1800"))
+FICHA_TTL = int(os.environ.get("FICHA_CACHE_S", "21600"))
+ERRO_TTL = 600                      # ticker que a brapi não conhece: não insistir por 10 min
+LIMITE_MES = int(os.environ.get("BRAPI_LIMITE_MES", "14000"))
+RE_TICKER_API = re.compile(r"^[A-Za-z0-9^]{3,10}$")
+
+_COT_CACHE: dict[str, tuple[float, dict]] = {}
+_FICHA_CACHE: dict[str, tuple[float, dict]] = {}
+_USO = {"mes": "", "n": 0}
+_TRAVA = threading.Lock()
+
+
+class LimiteBrapi(Exception):
+    pass
+
+
+def _contar_uso():
+    mes = time.strftime("%Y-%m")
+    with _TRAVA:
+        if _USO["mes"] != mes:
+            _USO["mes"], _USO["n"] = mes, 0
+        if _USO["n"] >= LIMITE_MES:
+            raise LimiteBrapi()
+        _USO["n"] += 1
+
+
+def _brapi(caminho: str, params: dict, token: str) -> dict:
+    """GET na brapi com o token no cabeçalho Authorization. Conta no uso do mês."""
+    _contar_uso()
+    qs = "&".join(f"{k}={quote(str(v), safe=',^')}" for k, v in params.items())
+    cab = {"User-Agent": "cockpit-bfr", "Accept": "application/json"}
+    if token:
+        cab["Authorization"] = f"Bearer {token}"
+    req = Request_urllib(f"{BRAPI}/{caminho}?{qs}", headers=cab)
+    with urlopen(req, timeout=12) as resposta:
+        return json.loads(resposta.read().decode("utf-8"))
+
+
+def _token(token_do_cliente: str) -> str:
+    return os.environ.get("BRAPI_TOKEN", "").strip() or (token_do_cliente or "").strip()
+
+
+def _cotacao(ticker: str, token: str) -> dict:
+    """Uma cotação, com cache. Devolve {"erro": codigo} se a brapi não tem o ticker."""
+    agora = time.time()
+    hit = _COT_CACHE.get(ticker)
+    if hit and agora - hit[0] < (ERRO_TTL if "erro" in hit[1] else COT_TTL):
+        return hit[1]
+    try:
+        dados = _brapi("quote", {"symbols": ticker}, token)
+        itens = dados.get("results") or []
+        item = itens[0] if itens else {"symbol": ticker, "erro": 404}
+        item.setdefault("symbol", ticker)
+    except HTTPError as e:
+        if e.code == 429:
+            raise LimiteBrapi()
+        item = {"symbol": ticker, "erro": e.code}
+    _COT_CACHE[ticker] = (agora, item)
+    if len(_COT_CACHE) > 800:
+        _COT_CACHE.clear()
+    return item
 
 
 @app.get("/api/cotacoes")
 def api_cotacoes(request: Request, tickers: str, token: str = ""):
-    """Busca cotações na brapi.dev pelo servidor, não pelo navegador.
-
-    Três motivos para não deixar o navegador chamar a brapi direto:
-    o navegador bloqueia chamadas entre domínios, o token apareceria no
-    código-fonte da página para qualquer um que abrisse o cockpit, e sem
-    cache cada clique consome a cota mensal de 15 mil requisições.
-
-    O token sai de BRAPI_TOKEN no ambiente. Se não houver, aceita o que o
-    cockpit mandar — assim continua funcionando com o token salvo no
-    navegador enquanto a variável não for criada.
-    """
     exigir_login(request)
 
-    lista = ",".join(t.strip() for t in tickers.split(",") if t.strip())[:400]
+    lista = []
+    for t in tickers.split(","):
+        t = t.strip().upper()
+        if t and t not in lista:
+            if not RE_TICKER_API.match(t):
+                raise HTTPException(400, f"ticker inválido: {t[:12]}")
+            lista.append(t)
+    lista = lista[:10]
     if not lista:
         raise HTTPException(400, "nenhum ticker informado")
 
+    chave = _token(token)
+    resultados, aviso, parar = [], "", False
+    for i, t in enumerate(lista):
+        veio_do_cache = t in _COT_CACHE and time.time() - _COT_CACHE[t][0] < COT_TTL
+        try:
+            resultados.append(_cotacao(t, chave))
+        except LimiteBrapi:
+            aviso, parar = "limite mensal da brapi atingido", True
+            break
+        except URLError as e:
+            aviso, parar = f"não deu para falar com a brapi: {e.reason}", True
+            break
+        if not veio_do_cache and i < len(lista) - 1:
+            time.sleep(0.15)        # gentileza com o limite de chamadas simultâneas
+
+    return JSONResponse({"results": resultados, "aviso": aviso, "parar": parar,
+                         "uso_mes": _USO["n"], "limite_mes": LIMITE_MES})
+
+
+@app.get("/api/ativo/{ticker}")
+def api_ativo(request: Request, ticker: str, token: str = ""):
+    """Ficha do ativo: perfil da empresa + preços dos últimos 3 meses (plano gratuito)."""
+    exigir_login(request)
+    ticker = ticker.strip().upper()
+    if not RE_TICKER_API.match(ticker):
+        raise HTTPException(400, "ticker inválido")
+
     agora = time.time()
-    em_cache = _COTACOES_CACHE.get(lista)
-    if em_cache and agora - em_cache[0] < CACHE_SEGUNDOS:
-        return JSONResponse(em_cache[1])
+    hit = _FICHA_CACHE.get(ticker)
+    if hit and agora - hit[0] < FICHA_TTL:
+        return JSONResponse(hit[1])
 
-    chave = os.environ.get("BRAPI_TOKEN", "").strip() or token.strip()
-    url = f"https://brapi.dev/api/quote/{quote(lista, safe=',^')}"
-    if chave:
-        url += f"?token={quote(chave)}"
-
+    chave = _token(token)
+    ficha = {"symbol": ticker, "perfil": {}, "hist": []}
     try:
-        req = Request_urllib(url, headers={"User-Agent": "cockpit-bfr"})
-        with urlopen(req, timeout=12) as resposta:
-            dados = json.loads(resposta.read().decode("utf-8"))
+        try:
+            r = (_brapi("profile", {"symbols": ticker}, chave).get("results") or [{}])[0]
+            d = r.get("data") or {}
+            resumo = (d.get("longBusinessSummary") or "").strip().split("\n")[0]
+            ficha["perfil"] = {
+                "nome": d.get("name"), "setor": d.get("sectorDisp") or d.get("sector"),
+                "industria": d.get("industryDisp") or d.get("industry"),
+                "site": d.get("website"),
+                "resumo": (resumo[:320] + "…") if len(resumo) > 320 else resumo,
+            }
+        except HTTPError:
+            pass        # perfil é enfeite; o gráfico ainda vale
+        r = (_brapi("historical", {"symbols": ticker, "range": "3mo", "interval": "1d",
+                                   "sortOrder": "asc"}, chave).get("results") or [{}])[0]
+        ficha["hist"] = [{"d": x["date"], "c": x.get("close")}
+                         for x in (r.get("historicalDataPrice") or []) if x.get("date")]
+    except LimiteBrapi:
+        raise HTTPException(429, "limite mensal da brapi atingido")
     except HTTPError as e:
-        corpo = e.read().decode("utf-8", "replace")[:200]
-        raise HTTPException(502, f"brapi respondeu {e.code}: {corpo}")
+        raise HTTPException(502, f"brapi respondeu {e.code}")
     except URLError as e:
         raise HTTPException(502, f"não deu para falar com a brapi: {e.reason}")
 
-    _COTACOES_CACHE[lista] = (agora, dados)
-    if len(_COTACOES_CACHE) > 300:
-        _COTACOES_CACHE.clear()
-    return JSONResponse(dados)
+    _FICHA_CACHE[ticker] = (agora, ficha)
+    if len(_FICHA_CACHE) > 400:
+        _FICHA_CACHE.clear()
+    return JSONResponse(ficha)
 
 
 # ------------------------------------------------------------------ gatilhos
