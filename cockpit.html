@@ -1190,7 +1190,7 @@ let FICHA = {};
 const fEsc = t => String(t==null?"":t).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 async function abreFicha(t){
   if(!t || (FICHA[t] && !FICHA[t].erro)) return;
-  FICHA[t] = {carregando:true}; if(curView==="ativos") render("ativos");
+  FICHA[t] = {carregando:true}; buscaNoticia(t); if(curView==="ativos") render("ativos");
   try{
     const tk = BRAPI_TOKEN ? `?token=${encodeURIComponent(BRAPI_TOKEN)}` : "";
     const r = await fetch(`/api/ativo/${encodeURIComponent(t)}${tk}`, {cache:"no-store"});
@@ -1239,7 +1239,42 @@ function fichaHTML(a){
       <div style="font-weight:600;font-size:13px">${fEsc(pf.nome||(COT[t]&&COT[t].nome)||t)} ${site}</div>
       ${quem?`<div style="font-size:11.5px;color:var(--mut);margin:2px 0 6px">${quem}</div>`:""}
       ${pf.resumo?`<div style="font-size:12px;color:var(--mut);line-height:1.45">${fEsc(pf.resumo)}</div>`:""}
-    </div>${spark}</div>`;
+    </div>${spark}</div>${noticiaHTML(t)}`;
+}
+
+// ---------- NOTÍCIA PRINCIPAL DO ATIVO (portais liberados; vazio = não mostra nada) ----------
+const NOTICIAS = {};
+let _noticiaFila = [], _noticiaAtivas = 0;
+function buscaNoticia(t){
+  if(!t || NOTICIAS[t]) return;
+  NOTICIAS[t] = {carregando:true};
+  _noticiaFila.push(t); _noticiaProxima();
+}
+function _noticiaProxima(){
+  while(_noticiaAtivas<2 && _noticiaFila.length){
+    const t = _noticiaFila.shift(); _noticiaAtivas++;
+    fetch(`/api/noticias/${encodeURIComponent(t)}`, {cache:"no-store"})
+      .then(r=>r.ok ? r.json() : Promise.reject(new Error("erro "+r.status)))
+      .then(j=>{ NOTICIAS[t] = j; })
+      .catch(()=>{ delete NOTICIAS[t]; })          // some e pode tentar de novo depois
+      .finally(()=>{ _noticiaAtivas--; noticiaChegou(t); _noticiaProxima(); });
+  }
+}
+function noticiaChegou(t){
+  const n = NOTICIAS[t];
+  if(!n || !n.resumo) return;
+  if(curView==="ativos") render("ativos");
+  else if(curView==="msgs") aplicaNoticiaMsgs();
+}
+function noticiaHTML(t){
+  const n = NOTICIAS[t];
+  if(!n || n.carregando || !n.resumo) return "";
+  const fontes = (n.fontes||[]).map(f=>/^https?:\/\//i.test(f.url||"")
+    ? `<a href="${fEsc(f.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--sky)" onclick="event.stopPropagation()">${fEsc(f.portal)}, ${fEsc(f.data)}</a>` : "").filter(Boolean).join(" · ");
+  return `<div style="margin:-2px 0 14px;padding:12px 14px;background:var(--panel2);border:1px solid rgba(167,139,250,.35);border-radius:10px" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;gap:10px;font-size:10.5px;letter-spacing:.06em;color:var(--mut);font-weight:700"><span>NOTÍCIA PRINCIPAL</span><span>${fEsc(n.data||"")}</span></div>
+    <div style="font-size:13px;line-height:1.55;margin:6px 0">${fEsc(n.resumo)}</div>
+    <div style="font-size:11px;color:var(--mut)">Fontes: ${fontes}</div></div>`;
 }
 
 // ---------- QUEM LIGAR HOJE (maiores variações entre os papéis dos clientes) ----------
@@ -3131,6 +3166,50 @@ function vMacro(){
 
 // ---------- MENSAGENS ----------
 let buscaMsg = "";
+const MSG_ORIG = {};
+// papéis da B3 que o cliente mais tem (até 2): são sobre eles que a mensagem traz notícia
+function tickersDaConta(c){
+  const m = {};
+  (c.posicoes||[]).forEach(p=>{
+    if(!p.saldo || /\((CALL|PUT)\)/i.test(p.ativo||"")) return;
+    const t = tickerDe(p.ativo); if(!t || RE_ETF.test(t)) return;
+    m[t] = (m[t]||0) + p.saldo;
+  });
+  return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,2).map(x=>x[0]);
+}
+// mensagem + notícia principal dos papéis dele (entra antes do fechamento; sem notícia, fica igual)
+function msgComNoticia(c){
+  const m = msgDe(c);
+  const blocos = tickersDaConta(c).map(t=>NOTICIAS[t]).filter(n=>n && n.resumo).map(n=>{
+    const f = (n.fontes||[]).map(x=>`${x.portal} (${x.data}): ${x.url}`).join("\n");
+    return `📰 *${n.symbol}* — ${n.resumo}\nFontes:\n${f}`;
+  });
+  if(!blocos.length) return m;
+  const p = m.split("\n\n");
+  if(p.length<2) return m+"\n\n"+blocos.join("\n\n");
+  return [...p.slice(0,-1), ...blocos, p[p.length-1]].join("\n\n");
+}
+function aplicaNoticiaMsgs(){
+  contas.forEach(c=>{
+    const ta = document.getElementById("msg_"+c.conta); if(!ta) return;
+    if(ta.value !== MSG_ORIG[c.conta]) return;               // você já editou: não mexo
+    const novo = msgComNoticia(c);
+    if(novo === ta.value) return;
+    ta.value = MSG_ORIG[c.conta] = novo; ta.rows = Math.min(novo.split("\n").length+1, 18);
+  });
+}
+let _obsMsg = null;
+function observaMsgs(){
+  if(_obsMsg) _obsMsg.disconnect();
+  if(!("IntersectionObserver" in window)) return;
+  _obsMsg = new IntersectionObserver(es=>es.forEach(e=>{
+    if(!e.isIntersecting) return;
+    _obsMsg.unobserve(e.target);
+    const c = contas.find(x=>x.conta===e.target.dataset.msgconta);
+    if(c) tickersDaConta(c).forEach(buscaNoticia);
+  }), {rootMargin:"300px"});
+  document.querySelectorAll("[data-msgconta]").forEach(el=>_obsMsg.observe(el));
+}
 function vMsgs(){
   const list = contas.filter(c=>c.conta.includes(buscaMsg) && c.flags.length)
     .map(c=>({c, pk:pacoteDe(c)}))
@@ -3142,9 +3221,9 @@ function vMsgs(){
   </div>
   <input class="search" placeholder="Buscar por código da conta…" value="${buscaMsg}" oninput="buscaMsg=this.value;render('msgs')" />
   ${list.map(({c,pk})=>{
-    const m = msgDe(c);
+    const m = msgComNoticia(c); MSG_ORIG[c.conta] = m;
     const linhas = m.split("\n").length;
-    return `<div class="card" style="margin-bottom:12px">
+    return `<div class="card" style="margin-bottom:12px" data-msgconta="${c.conta}">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
         <span style="font-weight:700;font-size:15px">Conta <span style="color:var(--gold)">${c.conta}</span></span>
         <button class="cp" style="opacity:1" onclick="copiar(event,'${c.conta}')">⧉ código</button>
@@ -3155,7 +3234,7 @@ function vMsgs(){
         <button onclick="copiarMsg(event,'${c.conta}')" style="margin-left:auto;background:#25D366;color:#062b16;border:none;border-radius:8px;padding:7px 14px;font-weight:700;cursor:pointer;font-size:12.5px">⧉ Copiar mensagem</button>
         <button class="cp" style="opacity:1" onclick="abrirCliente('${c.conta}')">abrir ficha →</button>
       </div>
-      <textarea id="msg_${c.conta}" rows="${Math.min(linhas+1,14)}" style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px;color:var(--txt);font-size:13px;line-height:1.55;resize:vertical;outline:none;font-family:inherit">${m}</textarea>
+      <textarea id="msg_${c.conta}" rows="${Math.min(linhas+1,18)}" style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px;color:var(--txt);font-size:13px;line-height:1.55;resize:vertical;outline:none;font-family:inherit">${fEsc(m)}</textarea>
     </div>`;
   }).join("")}
   ${!list.length?`<div class="empty">Nenhuma conta com pauta nesse filtro.</div>`:""}`;
@@ -4002,6 +4081,7 @@ function render(v){
   if(v==="macro") carregaMacro(false);
   if(v==="ativos" && !window.__cotIniciado){ window.__cotIniciado=true; if(cotVelha(30)) buscaCotacoes(tickersPrioritarios(60)); }
   if(v==="sim") SIM.mount();
+  if(v==="msgs") observaMsgs();
   // restaura foco e posição do cursor no campo de busca
   if(_focoBusca){
     const inp = [...document.querySelectorAll("input.search")].find(i=>i.placeholder===_focoBusca.ph);

@@ -24,6 +24,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
 import auth
 import db
 import chat_ia
+import noticias
 import importador
 
 BASE = Path(__file__).parent
@@ -518,6 +519,16 @@ def api_ativo(request: Request, ticker: str, token: str = ""):
     if not RE_TICKER_API.match(ticker):
         raise HTTPException(400, "ticker inválido")
     return JSONResponse(_montar_ficha(ticker, _token(token)))
+
+
+@app.get("/api/noticias/{ticker}")
+async def api_noticias(request: Request, ticker: str):
+    """Notícia principal do papel, com as fontes (vazio = sem matéria recente)."""
+    exigir_login(request)
+    t = _ticker_valido(ticker)
+    if not t:
+        raise HTTPException(400, "ticker inválido")
+    return JSONResponse(await run_in_threadpool(noticias.noticia, t))
 
 
 # ------------------------------------------------------------------ chat com IA
