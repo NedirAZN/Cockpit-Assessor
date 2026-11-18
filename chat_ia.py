@@ -6,7 +6,7 @@ decide quais ferramentas chamar e escreve a resposta; as ferramentas rodam no se
 
   cotacao_b3, ficha_b3          brapi.dev (plano free)
   historico_mais_retorno        Mais Retorno (cotas históricas; risco e retorno calculados aqui)
-  exposicao_cockpit             o que a base do cockpit tem de um ativo (agregado, sem número de conta)
+  exposicao_cockpit             o que a base do cockpit tem de um ativo (agregado + números das contas, sem nome de cliente)
 
 Variáveis de ambiente:
   ANTHROPIC_API_KEY     obrigatória para o chat de IA
@@ -36,7 +36,7 @@ Responda em português do Brasil, direto e curto: primeiro o dado, depois uma le
 
 Você entrega dados e análise histórica, não recomendação: não diga para comprar, vender ou mudar a alocação de um cliente. Se perguntarem "o que fazer", mostre os números que ajudam a decidir e deixe a decisão com o Bruno.
 
-Para ver quantos clientes têm um ativo na base do cockpit, use exposicao_cockpit (devolve só agregado). Se a ferramenta falhar ou a chave de um serviço não estiver configurada, diga isso em uma frase e siga com o que tiver.
+Para ver quantos clientes têm um ativo na base do cockpit, use exposicao_cockpit: ela devolve, por ativo/estratégia, o nº de clientes, o volume e a lista de números de conta (com o saldo de cada). Sempre que o Bruno perguntar quem tem algo, liste os números das contas na resposta, do maior saldo para o menor; se a lista vier cortada (contas_cortadas), diga quantas faltam. Nunca invente nomes de clientes: a base só tem número de conta. Se a ferramenta falhar ou a chave de um serviço não estiver configurada, diga isso em uma frase e siga com o que tiver.
 Formato: texto simples, sem tabelas; pode usar **negrito** em poucos pontos e listas curtas com "•"."""
 
 FERRAMENTAS = [
@@ -52,7 +52,7 @@ FERRAMENTAS = [
          "identificador": {"type": "string"},
          "meses": {"type": "integer", "description": "Janela em meses, 1 a 60. Padrão 12."}}, "required": ["identificador"]}},
     {"name": "exposicao_cockpit",
-     "description": "Quanto a base do cockpit tem de um ativo: nº de clientes, volume e estratégia. Busca por parte do nome (ex.: 'ABEV3', 'Tesouro Selic'). Devolve só agregado.",
+     "description": "Quanto a base do cockpit tem de um ativo: nº de clientes, volume e estratégia. Busca por parte do nome (ex.: 'ABEV3', 'Tesouro Selic'). Devolve agregado e os números das contas.",
      "input_schema": {"type": "object", "properties": {"ativo": {"type": "string"}}, "required": ["ativo"]}},
 ]
 

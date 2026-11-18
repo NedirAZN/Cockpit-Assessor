@@ -584,12 +584,16 @@ def _tool_exposicao(ativo: str) -> dict:
                 continue
             a = agg.setdefault((p["ativo"], p.get("estrategia")),
                                {"ativo": p["ativo"], "estrategia": p.get("estrategia"),
-                                "contas": set(), "volume": 0.0})
-            a["contas"].add(c.get("conta"))
+                                "contas": {}, "volume": 0.0})
+            a["contas"][c.get("conta")] = a["contas"].get(c.get("conta"), 0.0) + float(p["saldo"])
             a["volume"] += float(p["saldo"])
-    achados = sorted(({"ativo": a["ativo"], "estrategia": a["estrategia"],
-                       "clientes": len(a["contas"]), "volume_brl": round(a["volume"], 2)}
-                      for a in agg.values()), key=lambda x: -x["volume_brl"])[:8]
+    achados = []
+    for a in sorted(agg.values(), key=lambda x: -x["volume"])[:8]:
+        ordem = sorted(a["contas"].items(), key=lambda kv: -kv[1])
+        achados.append({"ativo": a["ativo"], "estrategia": a["estrategia"],
+                        "clientes": len(ordem), "volume_brl": round(a["volume"], 2),
+                        "contas": [{"conta": k, "saldo_brl": round(v, 2)} for k, v in ordem[:40]],
+                        "contas_cortadas": max(0, len(ordem) - 40)})
     return {"total_contas_na_base": len(linhas), "encontrados": achados, "fonte": "base do cockpit"}
 
 
