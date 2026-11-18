@@ -303,7 +303,7 @@ def ler_historico_mensal(linhas):
 # ------------------------------------------------ página 5: composição
 
 RE_COMPOSICAO = re.compile(
-    rf"([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s/\.]+?)\s+\((\d+,\d+)%\)\s+({DIN})\s+"
+    rf"([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\s/\.\-–\(\)]+?)\s+\((\d+,\d+)%\)\s+({DIN})\s+"
     rf"({PCT_OU_TRACO})\s+({PCT_OU_TRACO})\s+({PCT_OU_TRACO})\s+({PCT_OU_TRACO})\s*$")
 
 
@@ -344,7 +344,23 @@ RE_POSICAO = re.compile(
     rf"(?P<r3>{PCT_OU_TRACO})\s+(?P<c3>{PCT_OU_TRACO})\s*$")
 
 
-def ler_posicoes(linhas):
+ESTR_PADRAO = {"Pós Fixado", "Pré Fixado", "Inflação", "Renda Variável Brasil", "Renda Variável Global",
+               "Fundos Listados", "Alternativo", "Multimercado", "Renda Fixa Global", "Caixa", "Proventos",
+               "Estruturados (COE)", "Derivativos / Estruturas"}
+
+
+def cabecalho_de_estrategia(nome, conhecidas):
+    """Linha com quantidade "-" abre uma estratégia? Só se o nome parece de estratégia.
+
+    Perna de opção ("CLM7 (PUT)", "AXZ6 (CALL)") e papel avulso ("SMALL11") também podem vir com
+    quantidade "-" e NÃO abrem estratégia: antes abriam, e todo ativo lido depois ia parar nela.
+    Estrutura montada tem " - " no nome ("Collar UI - SMAL11", "Call - ABEV3").
+    """
+    return (nome in ESTR_PADRAO or nome in conhecidas
+            or bool(re.search(r"\s[-–]\s*\S", nome)))
+
+
+def ler_posicoes(linhas, estrategias_conhecidas=()):
     """Ativo a ativo, com a estratégia de cada um.
 
     ARMADILHA 3: a linha de números começa com "R$" quando o nome quebrou.
@@ -386,7 +402,8 @@ def ler_posicoes(linhas):
             continue
 
         if m.group("qtd") == "-":            # total da estratégia, não um ativo
-            estrategia_atual = nome
+            if cabecalho_de_estrategia(nome, set(estrategias_conhecidas)):
+                estrategia_atual = nome
             continue
 
         posicoes.append({
@@ -440,7 +457,7 @@ def ler_pdf(caminho):
 
     capa = ler_capa(linhas, caminho.name)
     cons = ler_consolidado(linhas)
-    posicoes = ler_posicoes(linhas)
+    posicoes = ler_posicoes(linhas, [e['nome'] for e in ler_composicao(linhas)])
 
     patrimonio = cons["patrimonio"]
     if patrimonio is None and posicoes:

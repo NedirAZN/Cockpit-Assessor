@@ -1288,6 +1288,48 @@ function captacaoDe(c){
 
 // ---------- preparo ----------
 const contas = RAW.filter(c=>c.patrimonio!=null).sort((a,b)=>b.patrimonio-a.patrimonio);
+
+// ---------- higiene da estratégia lida do PDF ----------
+// 1) Linha com quantidade "-" que é perna de opção ("CLM7 (PUT)") ou papel avulso ("SMALL11") foi lida como
+//    se fosse estratégia, e todo ativo depois dela herdou esse nome. Estratégia válida = padrão, nome que
+//    consta na composição da conta, ou estrutura montada (tem " - " no nome). Posição sob nome inválido
+//    volta para a última estratégia válida da conta.
+// 2) Estrutura montada em torno de um papel ("Collar UI - SMAL11", "Booster - ITUB4"): só pertencem a ela
+//    posições desse papel (ou das opções dele). O resto é realocado para a estratégia padrão em que esse
+//    ativo aparece nas outras contas. A leitura original fica em p.estrategia_lida.
+(function(){
+  const PADRAO = new Set(["Pós Fixado","Pré Fixado","Inflação","Renda Variável Brasil","Renda Variável Global",
+    "Fundos Listados","Alternativo","Multimercado","Renda Fixa Global","Caixa","Proventos","Estruturados (COE)","Derivativos / Estruturas"]);
+  const ehEstruturaDeObjeto = n => /^(Collar|Call|Put|Booster|Fence|Seagull|Risk)/i.test(n||"") && /\s[-–]\s*\S/.test(n);
+  const objetoDe = n => { const m=/\s[-–]\s*(.+?)\s*$/.exec(n||""); return m ? m[1].split(/\s+/)[0].toUpperCase().replace(/[^A-Z0-9]/g,"") : ""; };
+  const norm = a => String(a||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+  const SEM = "Não classificado";
+  contas.forEach(c=>{
+    const comp = new Set((c.estrategias||[]).map(e=>e.nome));
+    let ultima = null;
+    (c.posicoes||[]).forEach(p=>{
+      const e = p.estrategia;
+      const ok = !e || PADRAO.has(e) || comp.has(e) || /\s[-–]\s*\S/.test(e);
+      if(ok){ if(e) ultima = e; return; }
+      p.estrategia_lida = e; p.realocada = true; p.estrategia = ultima || SEM;
+    });
+  });
+  // estratégia padrão dominante de cada ativo (por volume), para realocar o que não pertence à estrutura
+  const vol = {};
+  contas.forEach(c=>(c.posicoes||[]).forEach(p=>{
+    if(!p.saldo || !p.estrategia || !PADRAO.has(p.estrategia) || /Estruturados|Derivativos/.test(p.estrategia)) return;
+    const o = vol[p.ativo] || (vol[p.ativo]={}); o[p.estrategia]=(o[p.estrategia]||0)+p.saldo;
+  }));
+  const dominante = a => { const o=vol[a]; return o ? Object.entries(o).sort((x,y)=>y[1]-x[1])[0][0] : null; };
+  contas.forEach(c=>(c.posicoes||[]).forEach(p=>{
+    if(!ehEstruturaDeObjeto(p.estrategia)) return;
+    const obj = objetoDe(p.estrategia);
+    if(obj && norm(p.ativo).includes(obj)) return;
+    if(!p.saldo && /\((CALL|PUT)\)/i.test(p.ativo||"")) return;      // perna de opção sem saldo: fica
+    p.estrategia_lida = p.estrategia_lida || p.estrategia; p.realocada = true;
+    p.estrategia = dominante(p.ativo) || SEM;
+  }));
+})();
 const semDados = RAW.filter(c=>c.patrimonio==null);
 const AUM = contas.reduce((s,c)=>s+c.patrimonio,0);
 
@@ -1744,6 +1786,9 @@ function diagEstrategia(nome){
     if(Math.abs(soma-rel) > Math.max(50, Math.abs(rel)*0.02)) dif.push({conta:c.conta, soma, rel});
   });
   const linhas = [];
+  let realoc = 0, contasRealoc = new Set();
+  contas.forEach(c=>(c.posicoes||[]).forEach(p=>{ if(p.realocada && p.estrategia_lida===nome){ realoc++; contasRealoc.add(c.conta); } }));
+  if(realoc) linhas.push(`Na leitura do PDF, ${realoc} posição(ões) de ${contasRealoc.size} conta(s) vieram sob esta estratégia sem ser do ativo-objeto e foram movidas para a classe em que esse papel aparece nas outras carteiras (${[...contasRealoc].slice(0,4).map(k=>`<span style="cursor:pointer;color:var(--sky)" onclick="abrirCliente('${k}')">${k}</span>`).join(", ")}${contasRealoc.size>4?"…":""}).`);
   if(sub) linhas.push(`Ativo-objeto: <b>${sub}</b> — aparece em ${nObj} das ${nPos} posições com saldo lidas sob esta estratégia. As pernas de opção têm saldo zero e ficam em <i>Derivativos / Estruturas</i>.`);
   if(dif.length) linhas.push(`<span style="color:var(--gold)">⚠ Conferência com o relatório:</span> em ${dif.length} conta(s) a soma das posições lidas sob esta estratégia difere do saldo dela na página de composição do PDF (${dif.slice(0,4).map(d=>`<span style="cursor:pointer;color:var(--sky)" onclick="abrirCliente('${d.conta}')">${d.conta}</span>: ${fmt(d.soma)} lido × ${fmt(d.rel)} no relatório`).join("; ")}${dif.length>4?"…":""}). Pode indicar posição lida sob a estratégia errada — vale conferir o PDF dessa conta.`);
   return linhas.length ? `<div class="hint" style="margin:12px 0 0">${linhas.join("<br>")}</div>` : "";
