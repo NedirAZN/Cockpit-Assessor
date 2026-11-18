@@ -17,11 +17,13 @@ from pathlib import Path
 from fastapi import (BackgroundTasks, FastAPI, File, Form, HTTPException,
                      Request, UploadFile)
 from fastapi.middleware.gzip import GZipMiddleware
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
                                Response)
 
 import auth
 import db
+import chat_ia
 import importador
 
 BASE = Path(__file__).parent
@@ -470,20 +472,13 @@ def api_cotacoes(request: Request, tickers: str, token: str = ""):
                          "uso_mes": _USO["n"], "limite_mes": LIMITE_MES})
 
 
-@app.get("/api/ativo/{ticker}")
-def api_ativo(request: Request, ticker: str, token: str = ""):
-    """Ficha do ativo: perfil da empresa + preços dos últimos 3 meses (plano gratuito)."""
-    exigir_login(request)
-    ticker = ticker.strip().upper()
-    if not RE_TICKER_API.match(ticker):
-        raise HTTPException(400, "ticker inválido")
-
+def _montar_ficha(ticker: str, chave: str) -> dict:
+    """Perfil da empresa + preços dos últimos 3 meses, com cache (plano gratuito)."""
     agora = time.time()
     hit = _FICHA_CACHE.get(ticker)
     if hit and agora - hit[0] < FICHA_TTL:
-        return JSONResponse(hit[1])
+        return hit[1]
 
-    chave = _token(token)
     ficha = {"symbol": ticker, "perfil": {}, "hist": []}
     try:
         try:
@@ -512,7 +507,110 @@ def api_ativo(request: Request, ticker: str, token: str = ""):
     _FICHA_CACHE[ticker] = (agora, ficha)
     if len(_FICHA_CACHE) > 400:
         _FICHA_CACHE.clear()
-    return JSONResponse(ficha)
+    return ficha
+
+
+@app.get("/api/ativo/{ticker}")
+def api_ativo(request: Request, ticker: str, token: str = ""):
+    """Ficha do ativo para a tela Produtos & Ativos."""
+    exigir_login(request)
+    ticker = ticker.strip().upper()
+    if not RE_TICKER_API.match(ticker):
+        raise HTTPException(400, "ticker inválido")
+    return JSONResponse(_montar_ficha(ticker, _token(token)))
+
+
+# ------------------------------------------------------------------ chat com IA
+#
+# O balão do cockpit responde sozinho o que sabe da carteira. O resto vem para cá: o Claude
+# (API da Anthropic) escolhe as ferramentas — brapi, Mais Retorno, base do cockpit — e escreve
+# a resposta. Ver chat_ia.py. Nenhuma ferramenta devolve nome ou número de conta de cliente.
+
+_CAMPOS_COTACAO = ("symbol", "longName", "regularMarketPrice", "regularMarketChange",
+                   "regularMarketChangePercent", "regularMarketVolume", "regularMarketDayHigh",
+                   "regularMarketDayLow", "fiftyTwoWeekLow", "fiftyTwoWeekHigh", "regularMarketTime")
+
+
+def _ticker_valido(t) -> str | None:
+    t = str(t or "").strip().upper()
+    return t if RE_TICKER_API.match(t) else None
+
+
+def _tool_cotacao(ticker: str) -> dict:
+    t = _ticker_valido(ticker)
+    if not t:
+        return {"erro": "ticker inválido"}
+    try:
+        x = _cotacao(t, _token(""))
+    except LimiteBrapi:
+        return {"erro": "limite mensal da brapi atingido"}
+    if "erro" in x:
+        return {"erro": f"a brapi não tem {t} (código {x['erro']})"}
+    out = {k: x.get(k) for k in _CAMPOS_COTACAO}
+    out["fonte"] = "brapi (atraso de ~30 min)"
+    return out
+
+
+def _tool_ficha(ticker: str) -> dict:
+    t = _ticker_valido(ticker)
+    if not t:
+        return {"erro": "ticker inválido"}
+    try:
+        f = _montar_ficha(t, _token(""))
+    except HTTPException as e:
+        return {"erro": e.detail}
+    out = {"symbol": t, "perfil": f["perfil"], "fonte": "brapi"}
+    h = [x for x in f["hist"] if x.get("c")]
+    if len(h) >= 2:
+        ult, pri = h[-1]["c"], h[0]["c"]
+        ref1 = next((x for x in h if x["d"] >= h[-1]["d"] - 30 * 86400), h[0])
+        out["ultimos_3_meses"] = {
+            "ultimo_fechamento": ult, "variacao_3m_pct": round((ult / pri - 1) * 100, 2),
+            "variacao_1m_pct": round((ult / ref1["c"] - 1) * 100, 2),
+            "minimo": min(x["c"] for x in h), "maximo": max(x["c"] for x in h)}
+    return out
+
+
+def _tool_exposicao(ativo: str) -> dict:
+    termo = str(ativo or "").strip().lower()
+    if len(termo) < 3:
+        return {"erro": "informe pelo menos 3 letras do nome do ativo"}
+    linhas = db.buscar("SELECT dados FROM carteiras")
+    agg: dict = {}
+    for l in linhas:
+        c = l["dados"]
+        for p in c.get("posicoes") or []:
+            if not p.get("saldo") or termo not in (p.get("ativo") or "").lower():
+                continue
+            a = agg.setdefault((p["ativo"], p.get("estrategia")),
+                               {"ativo": p["ativo"], "estrategia": p.get("estrategia"),
+                                "contas": set(), "volume": 0.0})
+            a["contas"].add(c.get("conta"))
+            a["volume"] += float(p["saldo"])
+    achados = sorted(({"ativo": a["ativo"], "estrategia": a["estrategia"],
+                       "clientes": len(a["contas"]), "volume_brl": round(a["volume"], 2)}
+                      for a in agg.values()), key=lambda x: -x["volume_brl"])[:8]
+    return {"total_contas_na_base": len(linhas), "encontrados": achados, "fonte": "base do cockpit"}
+
+
+@app.post("/api/chat")
+async def api_chat(request: Request):
+    exigir_login(request)
+    try:
+        corpo = await request.json()
+    except Exception:
+        raise HTTPException(400, "corpo inválido")
+    if not isinstance(corpo, dict):
+        raise HTTPException(400, "corpo inválido")
+    pergunta = str(corpo.get("pergunta", "")).strip()[:1500]
+    if not pergunta:
+        raise HTTPException(400, "pergunta vazia")
+    historico = corpo.get("historico") if isinstance(corpo.get("historico"), list) else []
+    locais = {"cotacao_b3": _tool_cotacao, "ficha_b3": _tool_ficha, "exposicao_cockpit": _tool_exposicao}
+    try:
+        return JSONResponse(await run_in_threadpool(chat_ia.perguntar, pergunta, historico, locais))
+    except chat_ia.ChatIndisponivel as e:
+        raise HTTPException(503, str(e))
 
 
 # ------------------------------------------------------------------ gatilhos

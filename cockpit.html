@@ -243,7 +243,7 @@ textarea.dr-in{padding:10px 12px;min-height:110px;resize:vertical;line-height:1.
 <div id="chatbox">
   <div id="chathead">
     <span style="font-weight:700;font-size:13px">Assistente do Cockpit</span>
-    <span class="pill mut" style="font-size:9px">consulta local</span>
+    <span class="pill mut" style="font-size:9px" title="Carteira: consulta local. Cotação, ficha e risco de fundos: IA com brapi e Mais Retorno">local + IA</span>
     <button onclick="toggleChat()" style="margin-left:auto;background:none;border:none;color:var(--dim);cursor:pointer;font-size:16px">✕</button>
   </div>
   <div id="chatlog"></div>
@@ -252,6 +252,7 @@ textarea.dr-in{padding:10px 12px;min-height:110px;resize:vertical;line-height:1.
     <span onclick="perguntar('contas com vencimentos em 2026 e 2027')">vencimentos 26/27</span>
     <span onclick="perguntar('quais contas recebem dividendos?')">recebem dividendos</span>
     <span onclick="perguntar('quem tem VALE3')">quem tem VALE3</span>
+    <span onclick="perguntar('cotação e ficha de PETR4')">cotação PETR4</span>
     <span onclick="perguntar('quanto falta para a meta')">meta</span>
     <span onclick="perguntar('maiores clientes')">maiores clientes</span>
     <span onclick="perguntar('clientes frios')">sem contato</span>
@@ -4024,13 +4025,38 @@ function diz(quem, txt){
   const d=document.createElement("div");
   d.className="msg "+quem; d.innerHTML=txt;
   log.appendChild(d); log.scrollTop=log.scrollHeight;
+  return d;
+}
+// Perguntas que o cockpit não entende (ou que são de mercado: cotação, ficha, risco de fundo)
+// vão para a IA, que consulta a brapi, a Mais Retorno e a base do cockpit. O resto continua local.
+const CHAT_HIST = [];
+const RE_IA = /cota[cç][aã]o|pre[cç]o d|sharpe|volatil|drawdown|not[ií]cia|ficha|perfil d|setor|hist[oó]rico d|cnpj|\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/i;
+const NOMES_FONTE = {cotacao_b3:"brapi", ficha_b3:"brapi", historico_mais_retorno:"Mais Retorno", exposicao_cockpit:"base do cockpit"};
+const iaHTML = t => fEsc(t).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/\n/g,"<br>");
+async function perguntarIA(q){
+  const el = diz("a", "<i>Consultando brapi, Mais Retorno e a base do cockpit…</i>");
+  try{
+    const r = await fetch("/api/chat", {method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({pergunta:q, historico:CHAT_HIST.slice(-8)})});
+    if(r.status===401) throw new Error("sessão expirada — entre de novo");
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.detail || ("erro "+r.status));
+    const fontes = [...new Set((j.ferramentas||[]).map(n=>NOMES_FONTE[n]||n))];
+    el.innerHTML = iaHTML(j.resposta) + (fontes.length?`<div style="margin-top:6px;font-size:10px;color:var(--dim)">fontes: ${fontes.join(" · ")}</div>`:"");
+    CHAT_HIST.push({role:"user",content:q},{role:"assistant",content:j.resposta});
+  }catch(e){
+    el.innerHTML = `Não consegui consultar a IA agora: ${fEsc(e.message)}.`;
+  }
+  const log=document.getElementById("chatlog"); log.scrollTop=log.scrollHeight;
 }
 function perguntar(texto){
   const inp=document.getElementById("chatq");
   const q = texto || inp.value.trim(); if(!q) return;
   inp.value="";
   diz("u", q);
-  setTimeout(()=>diz("a", responder(q)), 120);
+  const local = responder(q);
+  if(/^Não entendi/.test(local) || RE_IA.test(q)) perguntarIA(q);
+  else setTimeout(()=>diz("a", local), 120);
 }
 const lk = s => (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
 function linhaConta(c, extra){
